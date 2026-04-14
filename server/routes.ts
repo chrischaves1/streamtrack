@@ -62,9 +62,7 @@ async function tmdbFetch(path: string) {
   return res.json();
 }
 
-// Simple token-based auth using a Map (in-memory sessions)
-const sessions = new Map<string, number>(); // token -> userId
-
+// Token generation
 function generateToken(): string {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let token = "";
@@ -74,13 +72,31 @@ function generateToken(): string {
   return token;
 }
 
+const COOKIE_NAME = "st_session";
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year in seconds
+
+function setSessionCookie(res: Response, token: string) {
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    maxAge: COOKIE_MAX_AGE * 1000, // ms
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
 function requireAuth(req: Request, res: Response, next: NextFunction) {
+  // Check Authorization header first, then fall back to cookie
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  let token: string | undefined;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    token = authHeader.slice(7);
+  } else if (req.cookies?.[COOKIE_NAME]) {
+    token = req.cookies[COOKIE_NAME];
+  }
+  if (!token) {
     return res.status(401).json({ error: "Not authenticated" });
   }
-  const token = authHeader.slice(7);
-  const userId = sessions.get(token);
+  const userId = storage.getSession(token);
   if (!userId) {
     return res.status(401).json({ error: "Invalid or expired session" });
   }
@@ -166,7 +182,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const passwordHash = bcrypt.hashSync(password, 10);
       const user = storage.createUser(email, passwordHash, displayName);
       const token = generateToken();
-      sessions.set(token, user.id);
+      storage.createSession(token, user.id);
+      setSessionCookie(res, token);
 
       res.status(201).json({
         token,
@@ -191,7 +208,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
       }
 
       const token = generateToken();
-      sessions.set(token, user.id);
+      storage.createSession(token, user.id);
+      setSessionCookie(res, token);
 
       res.json({
         token,
@@ -208,7 +226,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
   // Logout
   app.post("/api/auth/logout", requireAuth, (req, res) => {
     const token = (req as any).token;
-    sessions.delete(token);
+    storage.deleteSession(token);
+    res.clearCookie(COOKIE_NAME);
     res.json({ ok: true });
   });
 

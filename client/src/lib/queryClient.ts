@@ -18,12 +18,14 @@ export async function apiRequest(
   const headers: Record<string, string> = {};
   if (data) headers["Content-Type"] = "application/json";
   const token = getAuthToken();
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  // "cookie" is a sentinel meaning the session lives in an httpOnly cookie — no header needed
+  if (token && token !== "cookie") headers["Authorization"] = `Bearer ${token}`;
 
   const res = await fetch(`${API_BASE}${url}`, {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
+    credentials: "include",
   });
 
   return res;
@@ -37,9 +39,9 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const headers: Record<string, string> = {};
     const token = getAuthToken();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (token && token !== "cookie") headers["Authorization"] = `Bearer ${token}`;
 
-    const res = await fetch(`${API_BASE}${queryKey.join("/")}`, { headers });
+    const res = await fetch(`${API_BASE}${queryKey.join("/")}`, { headers, credentials: "include" });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

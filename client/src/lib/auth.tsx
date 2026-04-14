@@ -29,7 +29,8 @@ export function getAuthToken(): string | null {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  // Start as true so we attempt cookie-based auto-login before showing the login screen
+  const [isLoading, setIsLoading] = useState(true);
 
   const setAuth = (t: string, u: AuthUser) => {
     _token = t;
@@ -42,6 +43,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setUser(null);
   };
+
+  // On mount, try to restore session from the server cookie
+  useEffect(() => {
+    apiRequest("GET", "/api/auth/me")
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          // Cookie auth: no token returned, but we know the user
+          // Use a sentinel so apiRequest doesn't send an empty Bearer header
+          _token = "cookie";
+          setToken("cookie");
+          setUser(data);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await apiRequest("POST", "/api/auth/login", { email, password });
@@ -58,9 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    if (_token) {
-      apiRequest("POST", "/api/auth/logout").catch(() => {});
-    }
+    apiRequest("POST", "/api/auth/logout").catch(() => {});
     clearAuth();
   }, []);
 

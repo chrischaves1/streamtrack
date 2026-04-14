@@ -32,6 +32,15 @@ sqlite.exec(`
   )
 `);
 
+// Persistent sessions table — survives server restarts
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+  )
+`);
+
 // Add user_id column to shows if it doesn't exist (migration for existing data)
 try {
   sqlite.exec(`ALTER TABLE shows ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0 REFERENCES users(id)`);
@@ -44,6 +53,11 @@ export interface IStorage {
   createUser(email: string, passwordHash: string, displayName: string): User;
   getUserByEmail(email: string): User | undefined;
   getUserById(id: number): User | undefined;
+
+  // Sessions
+  createSession(token: string, userId: number): void;
+  getSession(token: string): number | undefined;
+  deleteSession(token: string): void;
 
   // Shows (scoped to user)
   getAllShows(userId: number): Show[];
@@ -65,6 +79,21 @@ export const storage: IStorage = {
 
   getUserById(id: number): User | undefined {
     return db.select().from(users).where(eq(users.id, id)).get();
+  },
+
+  // Sessions
+  createSession(token: string, userId: number): void {
+    sqlite.prepare(`INSERT OR REPLACE INTO sessions (token, user_id) VALUES (?, ?)`)
+      .run(token, userId);
+  },
+
+  getSession(token: string): number | undefined {
+    const row = sqlite.prepare(`SELECT user_id FROM sessions WHERE token = ?`).get(token) as { user_id: number } | undefined;
+    return row?.user_id;
+  },
+
+  deleteSession(token: string): void {
+    sqlite.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
   },
 
   // Shows

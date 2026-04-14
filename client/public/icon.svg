@@ -1,23 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <!-- Background -->
   <rect width="512" height="512" rx="96" fill="#18042a"/>
-  <!-- TV screen body -->
-  <rect x="80" y="140" width="352" height="220" rx="24" fill="#2d1054"/>
-  <!-- Screen inner (dark) -->
-  <rect x="100" y="158" width="312" height="184" rx="12" fill="#0f0118"/>
+  <!-- Outer glow ring -->
+  <circle cx="256" cy="256" r="185" fill="#7c3aed" opacity="0.15"/>
   <!-- Play button circle -->
-  <circle cx="256" cy="250" r="56" fill="#7c3aed" opacity="0.9"/>
-  <!-- Play triangle -->
-  <polygon points="240,224 240,276 286,250" fill="white"/>
-  <!-- Antenna left -->
-  <line x1="180" y1="140" x2="140" y2="88" stroke="#7c3aed" stroke-width="12" stroke-linecap="round"/>
-  <!-- Antenna right -->
-  <line x1="332" y1="140" x2="372" y2="88" stroke="#7c3aed" stroke-width="12" stroke-linecap="round"/>
-  <!-- Stand base -->
-  <rect x="196" y="360" width="120" height="16" rx="8" fill="#2d1054"/>
-  <rect x="156" y="372" width="200" height="16" rx="8" fill="#2d1054"/>
-  <!-- Streaming dots (status indicators) -->
-  <circle cx="174" cy="340" r="6" fill="#22c55e"/>
-  <circle cx="196" cy="340" r="6" fill="#7c3aed"/>
-  <circle cx="218" cy="340" r="6" fill="#7c3aed" opacity="0.5"/>
+  <circle cx="256" cy="256" r="160" fill="#7c3aed"/>
+  <!-- Inner shadow ring -->
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#5b21b6" stroke-width="6"/>
+  <!-- Play triangle - large and centered, offset right slightly for optical centering -->
+  <polygon points="208,168 208,344 368,256" fill="white"/>
 </svg>
