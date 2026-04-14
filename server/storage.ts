@@ -1,19 +1,18 @@
-import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
-import { users, shows, follows, type User, type InsertShow, type Show } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { type User, type InsertShow, type Show } from "@shared/schema";
 import path from "path";
 
 // ── SQLite setup (always available for local dev; used on Render too until PG is configured) ──
 const sqlite = new Database(path.join(process.cwd(), "shows.db"));
-const sqliteDb = drizzleSqlite(sqlite);
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    display_name TEXT NOT NULL
+    display_name TEXT NOT NULL,
+    username TEXT UNIQUE,
+    is_public INTEGER DEFAULT 1
   )
 `);
 sqlite.exec(`
@@ -27,7 +26,8 @@ sqlite.exec(`
     season INTEGER,
     episode INTEGER,
     notes TEXT,
-    poster_url TEXT
+    poster_url TEXT,
+    rating INTEGER
   )
 `);
 sqlite.exec(`
@@ -79,16 +79,51 @@ export interface IStorage {
   getFeedShows(userIds: number[]): Promise<Array<Show & { userName: string; userUsername: string | null }>>;
 }
 
+// ── SQLite helpers ────────────────────────────────────────────────────────────
+function sqliteRowToUser(row: any): User | undefined {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    email: row.email,
+    passwordHash: row.password_hash,
+    displayName: row.display_name,
+    username: row.username ?? null,
+    isPublic: row.is_public ?? 1,
+  } as User;
+}
+
+function sqliteRowToShow(row: any): Show | undefined {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title,
+    streamingService: row.streaming_service,
+    genre: row.genre ?? null,
+    status: row.status,
+    season: row.season ?? null,
+    episode: row.episode ?? null,
+    notes: row.notes ?? null,
+    posterUrl: row.poster_url ?? null,
+    rating: row.rating ?? null,
+  } as Show;
+}
+
 // ── SQLite implementation (sync ops wrapped in Promise) ───────────────────────
 const sqliteStorage: IStorage = {
   async createUser(email, passwordHash, displayName) {
-    return sqliteDb.insert(users).values({ email, passwordHash, displayName }).returning().get() as User;
+    const row = sqlite.prepare(
+      `INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?) RETURNING *`
+    ).get(email, passwordHash, displayName);
+    return sqliteRowToUser(row)!;
   },
   async getUserByEmail(email) {
-    return sqliteDb.select().from(users).where(eq(users.email, email)).get() as User | undefined;
+    const row = sqlite.prepare(`SELECT * FROM users WHERE email = ?`).get(email);
+    return sqliteRowToUser(row);
   },
   async getUserById(id) {
-    return sqliteDb.select().from(users).where(eq(users.id, id)).get() as User | undefined;
+    const row = sqlite.prepare(`SELECT * FROM users WHERE id = ?`).get(id);
+    return sqliteRowToUser(row);
   },
   async createSession(token, userId) {
     sqlite.prepare(`INSERT OR REPLACE INTO sessions (token, user_id) VALUES (?, ?)`).run(token, userId);
@@ -101,26 +136,56 @@ const sqliteStorage: IStorage = {
     sqlite.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
   },
   async getAllShows(userId) {
-    return sqliteDb.select().from(shows).where(eq(shows.userId, userId)).all() as Show[];
+    const rows = sqlite.prepare(`SELECT * FROM shows WHERE user_id = ?`).all(userId);
+    return rows.map(sqliteRowToShow) as Show[];
   },
   async getShow(id, userId) {
-    return sqliteDb.select().from(shows).where(and(eq(shows.id, id), eq(shows.userId, userId))).get() as Show | undefined;
+    const row = sqlite.prepare(`SELECT * FROM shows WHERE id = ? AND user_id = ?`).get(id, userId);
+    return sqliteRowToShow(row);
   },
   async createShow(userId, show) {
-    return sqliteDb.insert(shows).values({ ...show, userId }).returning().get() as Show;
+    const row = sqlite.prepare(
+      `INSERT INTO shows (user_id, title, streaming_service, genre, status, season, episode, notes, poster_url, rating)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    ).get(userId, show.title, show.streamingService, show.genre ?? null,
+          show.status ?? 'watching', show.season ?? null, show.episode ?? null,
+          show.notes ?? null, show.posterUrl ?? null, show.rating ?? null);
+    return sqliteRowToShow(row)!;
   },
   async updateShow(id, userId, show) {
-    return sqliteDb.update(shows).set(show).where(and(eq(shows.id, id), eq(shows.userId, userId))).returning().get() as Show | undefined;
+    const fields: string[] = [];
+    const values: any[] = [];
+    if (show.title !== undefined)            { fields.push(`title = ?`);              values.push(show.title); }
+    if (show.streamingService !== undefined) { fields.push(`streaming_service = ?`);  values.push(show.streamingService); }
+    if (show.genre !== undefined)            { fields.push(`genre = ?`);              values.push(show.genre); }
+    if (show.status !== undefined)           { fields.push(`status = ?`);             values.push(show.status); }
+    if (show.season !== undefined)           { fields.push(`season = ?`);             values.push(show.season); }
+    if (show.episode !== undefined)          { fields.push(`episode = ?`);            values.push(show.episode); }
+    if (show.notes !== undefined)            { fields.push(`notes = ?`);              values.push(show.notes); }
+    if (show.posterUrl !== undefined)        { fields.push(`poster_url = ?`);         values.push(show.posterUrl); }
+    if (show.rating !== undefined)           { fields.push(`rating = ?`);             values.push(show.rating); }
+    if (fields.length === 0) return sqliteRowToShow(sqlite.prepare(`SELECT * FROM shows WHERE id = ? AND user_id = ?`).get(id, userId));
+    values.push(id, userId);
+    const row = sqlite.prepare(`UPDATE shows SET ${fields.join(", ")} WHERE id = ? AND user_id = ? RETURNING *`).get(...values);
+    return sqliteRowToShow(row);
   },
   async deleteShow(id, userId) {
-    const result = sqliteDb.delete(shows).where(and(eq(shows.id, id), eq(shows.userId, userId))).run();
+    const result = sqlite.prepare(`DELETE FROM shows WHERE id = ? AND user_id = ?`).run(id, userId);
     return result.changes > 0;
   },
   async getUserByUsername(username) {
-    return sqliteDb.select().from(users).where(eq(users.username, username)).get() as User | undefined;
+    const row = sqlite.prepare(`SELECT * FROM users WHERE username = ?`).get(username);
+    return sqliteRowToUser(row);
   },
   async updateUser(id, data) {
-    return sqliteDb.update(users).set(data).where(eq(users.id, id)).returning().get() as User | undefined;
+    const fields: string[] = [];
+    const values: any[] = [];
+    if (data.username !== undefined) { fields.push(`username = ?`);  values.push(data.username); }
+    if (data.isPublic !== undefined) { fields.push(`is_public = ?`); values.push(data.isPublic); }
+    if (fields.length === 0) return sqliteRowToUser(sqlite.prepare(`SELECT * FROM users WHERE id = ?`).get(id));
+    values.push(id);
+    const row = sqlite.prepare(`UPDATE users SET ${fields.join(", ")} WHERE id = ? RETURNING *`).get(...values);
+    return sqliteRowToUser(row)!;
   },
   async follow(followerId, followingId) {
     sqlite.prepare(`INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)`).run(followerId, followingId);
