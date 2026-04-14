@@ -183,8 +183,9 @@ export function registerRoutes(httpServer: Server, app: Express) {
       res.status(201).json({ token, user: { id: user.id, email: user.email, displayName: user.displayName } });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors[0].message });
-      console.error("[register error]", e);
-      res.status(500).json({ error: "Failed to register" });
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[register error]", msg, e);
+      res.status(500).json({ error: "Failed to register", detail: msg });
     }
   });
 
@@ -202,8 +203,9 @@ export function registerRoutes(httpServer: Server, app: Express) {
       res.json({ token, user: { id: user.id, email: user.email, displayName: user.displayName } });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors[0].message });
-      console.error("[login error]", e);
-      res.status(500).json({ error: "Failed to login" });
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[login error]", msg, e);
+      res.status(500).json({ error: "Failed to login", detail: msg });
     }
   });
 
