@@ -165,7 +165,6 @@ let pgStorage: IStorage | null = null;
 async function getPgStorage(): Promise<IStorage> {
   if (pgStorage) return pgStorage;
 
-  const { drizzle: drizzlePg } = await import("drizzle-orm/node-postgres");
   const { Pool } = await import("pg");
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 });
 
@@ -176,7 +175,6 @@ async function getPgStorage(): Promise<IStorage> {
     console.warn("[storage] PostgreSQL connection failed, falling back to SQLite:", (e as Error).message);
     return sqliteStorage;
   }
-  const pgDb = drizzlePg(pool);
 
   // Create tables
   await pool.query(`
@@ -222,15 +220,52 @@ async function getPgStorage(): Promise<IStorage> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT UNIQUE`).catch(() => {});
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_public INTEGER DEFAULT 1`).catch(() => {});
 
+  // Helper: map PG row (snake_case) → User object (camelCase)
+  function rowToUser(row: any) {
+    if (!row) return undefined;
+    return {
+      id: row.id,
+      email: row.email,
+      passwordHash: row.password_hash,
+      displayName: row.display_name,
+      username: row.username ?? null,
+      isPublic: row.is_public ?? 1,
+    } as User;
+  }
+
+  // Helper: map PG row (snake_case) → Show object (camelCase)
+  function rowToShow(row: any) {
+    if (!row) return undefined;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      title: row.title,
+      streamingService: row.streaming_service,
+      genre: row.genre ?? null,
+      status: row.status,
+      season: row.season ?? null,
+      episode: row.episode ?? null,
+      notes: row.notes ?? null,
+      posterUrl: row.poster_url ?? null,
+      rating: row.rating ?? null,
+    } as Show;
+  }
+
   pgStorage = {
     async createUser(email, passwordHash, displayName) {
-      return (await pgDb.insert(users).values({ email, passwordHash, displayName }).returning())[0];
+      const res = await pool.query(
+        `INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, $3) RETURNING *`,
+        [email, passwordHash, displayName]
+      );
+      return rowToUser(res.rows[0])!;
     },
     async getUserByEmail(email) {
-      return (await pgDb.select().from(users).where(eq(users.email, email)))[0];
+      const res = await pool.query(`SELECT * FROM users WHERE email = $1`, [email]);
+      return rowToUser(res.rows[0]);
     },
     async getUserById(id) {
-      return (await pgDb.select().from(users).where(eq(users.id, id)))[0];
+      const res = await pool.query(`SELECT * FROM users WHERE id = $1`, [id]);
+      return rowToUser(res.rows[0]);
     },
     async createSession(token, userId) {
       await pool.query(
@@ -246,26 +281,70 @@ async function getPgStorage(): Promise<IStorage> {
       await pool.query(`DELETE FROM sessions WHERE token = $1`, [token]);
     },
     async getAllShows(userId) {
-      return pgDb.select().from(shows).where(eq(shows.userId, userId));
+      const res = await pool.query(`SELECT * FROM shows WHERE user_id = $1`, [userId]);
+      return res.rows.map(rowToShow) as Show[];
     },
     async getShow(id, userId) {
-      return (await pgDb.select().from(shows).where(and(eq(shows.id, id), eq(shows.userId, userId))))[0];
+      const res = await pool.query(`SELECT * FROM shows WHERE id = $1 AND user_id = $2`, [id, userId]);
+      return rowToShow(res.rows[0]);
     },
     async createShow(userId, show) {
-      return (await pgDb.insert(shows).values({ ...show, userId }).returning())[0];
+      const res = await pool.query(
+        `INSERT INTO shows (user_id, title, streaming_service, genre, status, season, episode, notes, poster_url, rating)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [userId, show.title, show.streamingService, show.genre ?? null, show.status ?? 'watching',
+         show.season ?? null, show.episode ?? null, show.notes ?? null, show.posterUrl ?? null, show.rating ?? null]
+      );
+      return rowToShow(res.rows[0])!;
     },
     async updateShow(id, userId, show) {
-      return (await pgDb.update(shows).set(show).where(and(eq(shows.id, id), eq(shows.userId, userId))).returning())[0];
+      const fields: string[] = [];
+      const values: any[] = [];
+      let i = 1;
+      if (show.title !== undefined)            { fields.push(`title = $${i++}`);              values.push(show.title); }
+      if (show.streamingService !== undefined) { fields.push(`streaming_service = $${i++}`);  values.push(show.streamingService); }
+      if (show.genre !== undefined)            { fields.push(`genre = $${i++}`);              values.push(show.genre); }
+      if (show.status !== undefined)           { fields.push(`status = $${i++}`);             values.push(show.status); }
+      if (show.season !== undefined)           { fields.push(`season = $${i++}`);             values.push(show.season); }
+      if (show.episode !== undefined)          { fields.push(`episode = $${i++}`);            values.push(show.episode); }
+      if (show.notes !== undefined)            { fields.push(`notes = $${i++}`);              values.push(show.notes); }
+      if (show.posterUrl !== undefined)        { fields.push(`poster_url = $${i++}`);         values.push(show.posterUrl); }
+      if (show.rating !== undefined)           { fields.push(`rating = $${i++}`);             values.push(show.rating); }
+      if (fields.length === 0) {
+        const res = await pool.query(`SELECT * FROM shows WHERE id = $1 AND user_id = $2`, [id, userId]);
+        return rowToShow(res.rows[0]);
+      }
+      values.push(id, userId);
+      const res = await pool.query(
+        `UPDATE shows SET ${fields.join(", ")} WHERE id = $${i++} AND user_id = $${i++} RETURNING *`,
+        values
+      );
+      return rowToShow(res.rows[0]);
     },
     async deleteShow(id, userId) {
-      const res = await pgDb.delete(shows).where(and(eq(shows.id, id), eq(shows.userId, userId))).returning();
-      return res.length > 0;
+      const res = await pool.query(`DELETE FROM shows WHERE id = $1 AND user_id = $2 RETURNING id`, [id, userId]);
+      return res.rows.length > 0;
     },
     async getUserByUsername(username) {
-      return (await pgDb.select().from(users).where(eq(users.username, username)))[0];
+      const res = await pool.query(`SELECT * FROM users WHERE username = $1`, [username]);
+      return rowToUser(res.rows[0]);
     },
     async updateUser(id, data) {
-      return (await pgDb.update(users).set(data).where(eq(users.id, id)).returning())[0];
+      const fields: string[] = [];
+      const values: any[] = [];
+      let i = 1;
+      if (data.username !== undefined) { fields.push(`username = $${i++}`);  values.push(data.username); }
+      if (data.isPublic !== undefined) { fields.push(`is_public = $${i++}`); values.push(data.isPublic); }
+      if (fields.length === 0) {
+        const res = await pool.query(`SELECT * FROM users WHERE id = $1`, [id]);
+        return rowToUser(res.rows[0])!;
+      }
+      values.push(id);
+      const res = await pool.query(
+        `UPDATE users SET ${fields.join(", ")} WHERE id = $${i++} RETURNING *`,
+        values
+      );
+      return rowToUser(res.rows[0])!;
     },
     async follow(followerId, followingId) {
       await pool.query(`INSERT INTO follows (follower_id, following_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [followerId, followingId]);
