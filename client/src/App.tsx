@@ -10,10 +10,14 @@ import SocialPage from "./pages/social";
 import PublicProfile from "./pages/profile";
 import NotFound from "./pages/not-found";
 
-function AppRoutes() {
+// Wrapper so public profile is always accessible
+function PublicProfileWrapper({ params }: { params: { username: string } }) {
+  return <PublicProfile params={params} />;
+}
+
+function ProtectedRoutes() {
   const { user, isLoading } = useAuth();
 
-  // While checking for an existing session cookie, show a simple splash
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -29,22 +33,25 @@ function AppRoutes() {
     );
   }
 
+  if (!user) return <AuthPage />;
+
+  return (
+    <Switch>
+      <Route path="/" component={HomePage} />
+      <Route path="/social" component={SocialPage} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+function AppRoutes() {
   return (
     <Router hook={useHashLocation}>
       <Switch>
-        {/* Public profile — accessible without auth */}
-        <Route path="/u/:username" component={PublicProfile} />
-
-        {/* Auth-protected routes */}
-        {!user ? (
-          <Route path="/:rest*" component={AuthPage} />
-        ) : (
-          <>
-            <Route path="/" component={HomePage} />
-            <Route path="/social" component={SocialPage} />
-            <Route component={NotFound} />
-          </>
-        )}
+        {/* Public profile — no auth required */}
+        <Route path="/u/:username" component={PublicProfileWrapper} />
+        {/* Everything else — auth-gated inside ProtectedRoutes */}
+        <Route component={ProtectedRoutes} />
       </Switch>
     </Router>
   );
