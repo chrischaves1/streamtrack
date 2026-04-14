@@ -220,7 +220,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
     const userId = (req as any).userId;
     const user = await storage.getUserById(userId);
     if (!user) return res.status(401).json({ error: "User not found" });
-    res.json({ id: user.id, email: user.email, displayName: user.displayName });
+    res.json({ id: user.id, email: user.email, displayName: user.displayName, username: user.username, isPublic: user.isPublic });
   });
 
   // ---- Shows routes (auth required) ----
@@ -282,6 +282,116 @@ export function registerRoutes(httpServer: Server, app: Express) {
       res.status(204).send();
     } catch (e) {
       res.status(500).json({ error: "Failed to delete show" });
+    }
+  });
+
+  // ---- Profile routes ----
+
+  // Update current user profile (username, displayName, isPublic)
+  app.patch("/api/auth/profile", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      const { username, displayName, isPublic } = req.body;
+      if (username) {
+        const existing = await storage.getUserByUsername(username);
+        if (existing && existing.id !== userId) {
+          return res.status(409).json({ error: "Username already taken" });
+        }
+      }
+      const updated = await storage.updateUser(userId, { username, displayName, isPublic });
+      if (!updated) return res.status(404).json({ error: "User not found" });
+      res.json({ id: updated.id, email: updated.email, displayName: updated.displayName, username: updated.username, isPublic: updated.isPublic });
+    } catch (e) {
+      console.error("[profile update error]", e);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+
+  // Public profile: get a user's shows by username (no auth required)
+  app.get("/api/profile/:username", async (req, res) => {
+    try {
+      const user = await storage.getUserByUsername(req.params.username);
+      if (!user || user.isPublic === 0) return res.status(404).json({ error: "Profile not found" });
+      const userShows = await storage.getAllShows(user.id);
+      res.json({
+        user: { id: user.id, displayName: user.displayName, username: user.username },
+        shows: userShows,
+      });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to load profile" });
+    }
+  });
+
+  // ---- Follow routes ----
+
+  // Search users to follow
+  app.get("/api/users/search", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      const q = (req.query.q as string) || "";
+      if (q.length < 2) return res.json([]);
+      const results = await storage.searchUsers(q, userId);
+      // Add isFollowing status to each result
+      const withStatus = await Promise.all(results.map(async (u) => ({
+        ...u,
+        isFollowing: await storage.isFollowing(userId, u.id),
+      })));
+      res.json(withStatus);
+    } catch (e) {
+      res.status(500).json({ error: "Search failed" });
+    }
+  });
+
+  // Follow a user
+  app.post("/api/follow/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      const targetId = parseInt(req.params.id);
+      if (userId === targetId) return res.status(400).json({ error: "Cannot follow yourself" });
+      await storage.follow(userId, targetId);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to follow" });
+    }
+  });
+
+  // Unfollow a user
+  app.delete("/api/follow/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      const targetId = parseInt(req.params.id);
+      await storage.unfollow(userId, targetId);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to unfollow" });
+    }
+  });
+
+  // Get following list with details
+  app.get("/api/following", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      const followingIds = await storage.getFollowing(userId);
+      const usersData = await Promise.all(followingIds.map(async (id) => {
+        const u = await storage.getUserById(id);
+        return u ? { id: u.id, displayName: u.displayName, username: u.username } : null;
+      }));
+      res.json(usersData.filter(Boolean));
+    } catch (e) {
+      res.status(500).json({ error: "Failed to get following" });
+    }
+  });
+
+  // Friends feed: shows from people you follow
+  app.get("/api/feed", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      const followingIds = await storage.getFollowing(userId);
+      if (followingIds.length === 0) return res.json([]);
+      const feedShows = await storage.getFeedShows(followingIds);
+      res.json(feedShows);
+    } catch (e) {
+      res.status(500).json({ error: "Failed to load feed" });
     }
   });
 }

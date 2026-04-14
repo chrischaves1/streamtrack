@@ -6,6 +6,8 @@ import { AuthProvider, useAuth } from "./lib/auth";
 import { Toaster } from "@/components/ui/toaster";
 import HomePage from "./pages/home";
 import AuthPage from "./pages/auth";
+import SocialPage from "./pages/social";
+import PublicProfile from "./pages/profile";
 import NotFound from "./pages/not-found";
 
 function AppRoutes() {
@@ -27,15 +29,22 @@ function AppRoutes() {
     );
   }
 
-  if (!user) {
-    return <AuthPage />;
-  }
-
   return (
     <Router hook={useHashLocation}>
       <Switch>
-        <Route path="/" component={HomePage} />
-        <Route component={NotFound} />
+        {/* Public profile — accessible without auth */}
+        <Route path="/u/:username" component={PublicProfile} />
+
+        {/* Auth-protected routes */}
+        {!user ? (
+          <Route path="/:rest*" component={AuthPage} />
+        ) : (
+          <>
+            <Route path="/" component={HomePage} />
+            <Route path="/social" component={SocialPage} />
+            <Route component={NotFound} />
+          </>
+        )}
       </Switch>
     </Router>
   );

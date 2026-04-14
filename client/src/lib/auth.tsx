@@ -5,6 +5,8 @@ interface AuthUser {
   id: number;
   email: string;
   displayName: string;
+  username?: string;
+  isPublic?: boolean;
 }
 
 interface AuthContextType {

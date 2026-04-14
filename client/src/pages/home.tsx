@@ -57,7 +57,9 @@ import {
   User,
   Loader2,
   Star,
+  Users,
 } from "lucide-react";
+import { Link } from "wouter";
 import {
   insertShowSchema,
   STREAMING_SERVICES,
@@ -877,8 +879,13 @@ export default function HomePage() {
             />
           </div>
 
-          {/* Add button + user menu */}
+          {/* Social + Add button + user menu */}
           <div className="flex items-center gap-2 shrink-0">
+          <Link href="/social">
+            <Button variant="ghost" size="icon" className="h-9 w-9" data-testid="button-social">
+              <Users className="h-4 w-4" />
+            </Button>
+          </Link>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button data-testid="button-add-show">
@@ -914,6 +921,11 @@ export default function HomePage() {
                 <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
               </div>
               <DropdownMenuSeparator />
+              <Link href="/social">
+                <DropdownMenuItem data-testid="menu-social">
+                  <Users className="h-3.5 w-3.5 mr-2" /> Social
+                </DropdownMenuItem>
+              </Link>
               <DropdownMenuItem onClick={logout} data-testid="button-logout">
                 <LogOut className="h-3.5 w-3.5 mr-2" /> Sign Out
               </DropdownMenuItem>

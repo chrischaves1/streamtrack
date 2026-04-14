@@ -1,6 +1,6 @@
 import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
-import { users, shows, type User, type InsertShow, type Show } from "@shared/schema";
+import { users, shows, follows, type User, type InsertShow, type Show } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import path from "path";
 
@@ -37,9 +37,19 @@ sqlite.exec(`
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
   )
 `);
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS follows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    follower_id INTEGER NOT NULL,
+    following_id INTEGER NOT NULL,
+    UNIQUE(follower_id, following_id)
+  )
+`);
 // Migrations
 try { sqlite.exec(`ALTER TABLE shows ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE shows ADD COLUMN rating INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE users ADD COLUMN username TEXT UNIQUE`); } catch {}
+try { sqlite.exec(`ALTER TABLE users ADD COLUMN is_public INTEGER DEFAULT 1`); } catch {}
 
 // ── Interface ─────────────────────────────────────────────────────────────────
 export interface IStorage {
@@ -56,6 +66,17 @@ export interface IStorage {
   createShow(userId: number, show: InsertShow): Promise<Show>;
   updateShow(id: number, userId: number, show: Partial<InsertShow>): Promise<Show | undefined>;
   deleteShow(id: number, userId: number): Promise<boolean>;
+
+  // Profile + follows
+  getUserByUsername(username: string): Promise<User | undefined>;
+  updateUser(id: number, data: { username?: string; displayName?: string; isPublic?: number }): Promise<User | undefined>;
+  follow(followerId: number, followingId: number): Promise<void>;
+  unfollow(followerId: number, followingId: number): Promise<void>;
+  getFollowing(userId: number): Promise<number[]>;
+  getFollowers(userId: number): Promise<number[]>;
+  isFollowing(followerId: number, followingId: number): Promise<boolean>;
+  searchUsers(query: string, currentUserId: number): Promise<Array<{ id: number; displayName: string; username: string | null }>>;
+  getFeedShows(userIds: number[]): Promise<Array<Show & { userName: string; userUsername: string | null }>>;
 }
 
 // ── SQLite implementation (sync ops wrapped in Promise) ───────────────────────
@@ -94,6 +115,47 @@ const sqliteStorage: IStorage = {
   async deleteShow(id, userId) {
     const result = sqliteDb.delete(shows).where(and(eq(shows.id, id), eq(shows.userId, userId))).run();
     return result.changes > 0;
+  },
+  async getUserByUsername(username) {
+    return sqliteDb.select().from(users).where(eq(users.username, username)).get() as User | undefined;
+  },
+  async updateUser(id, data) {
+    return sqliteDb.update(users).set(data).where(eq(users.id, id)).returning().get() as User | undefined;
+  },
+  async follow(followerId, followingId) {
+    sqlite.prepare(`INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)`).run(followerId, followingId);
+  },
+  async unfollow(followerId, followingId) {
+    sqlite.prepare(`DELETE FROM follows WHERE follower_id = ? AND following_id = ?`).run(followerId, followingId);
+  },
+  async getFollowing(userId) {
+    const rows = sqlite.prepare(`SELECT following_id FROM follows WHERE follower_id = ?`).all(userId) as { following_id: number }[];
+    return rows.map(r => r.following_id);
+  },
+  async getFollowers(userId) {
+    const rows = sqlite.prepare(`SELECT follower_id FROM follows WHERE following_id = ?`).all(userId) as { follower_id: number }[];
+    return rows.map(r => r.follower_id);
+  },
+  async isFollowing(followerId, followingId) {
+    const row = sqlite.prepare(`SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?`).get(followerId, followingId);
+    return !!row;
+  },
+  async searchUsers(query, currentUserId) {
+    const rows = sqlite.prepare(
+      `SELECT id, display_name as displayName, username FROM users WHERE id != ? AND (display_name LIKE ? OR username LIKE ?) LIMIT 10`
+    ).all(currentUserId, `%${query}%`, `%${query}%`) as Array<{ id: number; displayName: string; username: string | null }>;
+    return rows;
+  },
+  async getFeedShows(userIds) {
+    if (userIds.length === 0) return [];
+    const placeholders = userIds.map(() => "?").join(",");
+    const rows = sqlite.prepare(
+      `SELECT s.*, u.display_name as userName, u.username as userUsername
+       FROM shows s JOIN users u ON s.user_id = u.id
+       WHERE s.user_id IN (${placeholders})
+       ORDER BY s.id DESC LIMIT 50`
+    ).all(...userIds) as Array<any>;
+    return rows;
   },
 };
 
@@ -147,8 +209,18 @@ async function getPgStorage(): Promise<IStorage> {
       created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
     )
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS follows (
+      id SERIAL PRIMARY KEY,
+      follower_id INTEGER NOT NULL REFERENCES users(id),
+      following_id INTEGER NOT NULL REFERENCES users(id),
+      UNIQUE(follower_id, following_id)
+    )
+  `);
   // Safe migrations
   await pool.query(`ALTER TABLE shows ADD COLUMN IF NOT EXISTS rating INTEGER`).catch(() => {});
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT UNIQUE`).catch(() => {});
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_public INTEGER DEFAULT 1`).catch(() => {});
 
   pgStorage = {
     async createUser(email, passwordHash, displayName) {
@@ -189,6 +261,49 @@ async function getPgStorage(): Promise<IStorage> {
       const res = await pgDb.delete(shows).where(and(eq(shows.id, id), eq(shows.userId, userId))).returning();
       return res.length > 0;
     },
+    async getUserByUsername(username) {
+      return (await pgDb.select().from(users).where(eq(users.username, username)))[0];
+    },
+    async updateUser(id, data) {
+      return (await pgDb.update(users).set(data).where(eq(users.id, id)).returning())[0];
+    },
+    async follow(followerId, followingId) {
+      await pool.query(`INSERT INTO follows (follower_id, following_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [followerId, followingId]);
+    },
+    async unfollow(followerId, followingId) {
+      await pool.query(`DELETE FROM follows WHERE follower_id = $1 AND following_id = $2`, [followerId, followingId]);
+    },
+    async getFollowing(userId) {
+      const res = await pool.query(`SELECT following_id FROM follows WHERE follower_id = $1`, [userId]);
+      return res.rows.map((r: any) => r.following_id);
+    },
+    async getFollowers(userId) {
+      const res = await pool.query(`SELECT follower_id FROM follows WHERE following_id = $1`, [userId]);
+      return res.rows.map((r: any) => r.follower_id);
+    },
+    async isFollowing(followerId, followingId) {
+      const res = await pool.query(`SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2`, [followerId, followingId]);
+      return res.rows.length > 0;
+    },
+    async searchUsers(query, currentUserId) {
+      const res = await pool.query(
+        `SELECT id, display_name as "displayName", username FROM users WHERE id != $1 AND (display_name ILIKE $2 OR username ILIKE $2) LIMIT 10`,
+        [currentUserId, `%${query}%`]
+      );
+      return res.rows;
+    },
+    async getFeedShows(userIds) {
+      if (userIds.length === 0) return [];
+      const placeholders = userIds.map((_, i) => `$${i + 1}`).join(",");
+      const res = await pool.query(
+        `SELECT s.*, u.display_name as "userName", u.username as "userUsername"
+         FROM shows s JOIN users u ON s.user_id = u.id
+         WHERE s.user_id IN (${placeholders})
+         ORDER BY s.id DESC LIMIT 50`,
+        userIds
+      );
+      return res.rows;
+    },
   };
 
   return pgStorage;
@@ -207,4 +322,13 @@ export const storage: IStorage = {
   async createShow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).createShow(...args); },
   async updateShow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).updateShow(...args); },
   async deleteShow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).deleteShow(...args); },
+  async getUserByUsername(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).getUserByUsername(...args); },
+  async updateUser(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).updateUser(...args); },
+  async follow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).follow(...args); },
+  async unfollow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).unfollow(...args); },
+  async getFollowing(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).getFollowing(...args); },
+  async getFollowers(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).getFollowers(...args); },
+  async isFollowing(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).isFollowing(...args); },
+  async searchUsers(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).searchUsers(...args); },
+  async getFeedShows(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).getFeedShows(...args); },
 };

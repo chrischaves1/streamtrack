@@ -7,6 +7,14 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   displayName: text("display_name").notNull(),
+  username: text("username").unique(),
+  isPublic: integer("is_public").default(1), // 1 = profile visible, 0 = private
+});
+
+export const follows = sqliteTable("follows", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  followerId: integer("follower_id").notNull().references(() => users.id),
+  followingId: integer("following_id").notNull().references(() => users.id),
 });
 
 export const shows = sqliteTable("shows", {
@@ -36,6 +44,7 @@ export const registerSchema = z.object({
   email: z.string().email("Please enter a valid email"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   displayName: z.string().min(1, "Display name is required"),
+  username: z.string().min(2, "Username must be at least 2 characters").max(30).regex(/^[a-zA-Z0-9_]+$/, "Only letters, numbers, and underscores").optional(),
 });
 
 export const loginSchema = z.object({
@@ -45,6 +54,8 @@ export const loginSchema = z.object({
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+
+export type Follow = typeof follows.$inferSelect;
 
 export const STREAMING_SERVICES = [
   "Amazon Prime",
