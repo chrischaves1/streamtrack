@@ -65,23 +65,21 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
 
-  // Auto-seed: if SEED_EMAIL/SEED_HASH are set, ensure that account always exists.
-  // This prevents losing access when SQLite resets on Render deploys.
-  if (process.env.SEED_EMAIL && process.env.SEED_HASH) {
-    try {
-      const { storage: db } = await import("./storage");
-      const existing = await db.getUserByEmail(process.env.SEED_EMAIL);
-      if (!existing) {
-        await db.createUser(
-          process.env.SEED_EMAIL,
-          process.env.SEED_HASH,
-          process.env.SEED_NAME || "User"
-        );
-        console.log("[seed] Auto-created account for", process.env.SEED_EMAIL);
-      }
-    } catch (e) {
-      console.warn("[seed] Failed to seed account:", e);
+  // Auto-seed: always ensure the owner account exists on every boot.
+  // This survives SQLite resets on Render deploys.
+  try {
+    const { storage: db } = await import("./storage");
+    // Seed from env vars if set, otherwise use hardcoded fallback
+    const seedEmail = process.env.SEED_EMAIL || "christopherchaves@yahoo.com";
+    const seedHash  = process.env.SEED_HASH  || "$2b$10$odkSR0JHLEE6tU.UWjd6NO9b734oyXWQcCBsBnmjJp6kGTQ9YuDNC";
+    const seedName  = process.env.SEED_NAME  || "Christopher";
+    const existing = await db.getUserByEmail(seedEmail);
+    if (!existing) {
+      await db.createUser(seedEmail, seedHash, seedName);
+      console.log("[seed] Auto-created account for", seedEmail);
     }
+  } catch (e) {
+    console.warn("[seed] Failed to seed account:", e);
   }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
