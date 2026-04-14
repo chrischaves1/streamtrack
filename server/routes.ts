@@ -161,7 +161,11 @@ export function registerRoutes(httpServer: Server, app: Express) {
         }
       }
 
-      res.json({ genre, streamingService });
+      const posterUrl = details.poster_path
+        ? `https://image.tmdb.org/t/p/w185${details.poster_path}`
+        : null;
+
+      res.json({ genre, streamingService, posterUrl });
     } catch (e) {
       res.status(500).json({ error: "TMDB details failed" });
     }

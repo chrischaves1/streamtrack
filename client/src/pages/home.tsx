@@ -264,8 +264,11 @@ function ShowForm({
   }, []);
 
   const handleSelectShow = useCallback(async (result: TmdbResult) => {
-    // Set the title immediately
+    // Set the title and poster immediately from search result
     form.setValue("title", result.name, { shouldValidate: true });
+    if (result.posterPath) {
+      form.setValue("posterUrl", result.posterPath);
+    }
     setShowDropdown(false);
     setSearchResults([]);
 
@@ -281,6 +284,7 @@ function ShowForm({
         if (details.streamingService) {
           form.setValue("streamingService", details.streamingService, { shouldValidate: true });
         }
+        // Upgrade to higher-res poster from details if available
         if (details.posterUrl) {
           form.setValue("posterUrl", details.posterUrl);
         }
