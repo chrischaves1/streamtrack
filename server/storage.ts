@@ -105,7 +105,15 @@ async function getPgStorage(): Promise<IStorage> {
 
   const { drizzle: drizzlePg } = await import("drizzle-orm/node-postgres");
   const { Pool } = await import("pg");
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 });
+
+  // Test connection — if it fails, fall back to SQLite
+  try {
+    await pool.query("SELECT 1");
+  } catch (e) {
+    console.warn("[storage] PostgreSQL connection failed, falling back to SQLite:", (e as Error).message);
+    return sqliteStorage;
+  }
   const pgDb = drizzlePg(pool);
 
   // Create tables
