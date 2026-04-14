@@ -20,6 +20,7 @@ export const shows = sqliteTable("shows", {
   episode: integer("episode"),
   notes: text("notes"),
   posterUrl: text("poster_url"),
+  rating: integer("rating"),
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, passwordHash: true });

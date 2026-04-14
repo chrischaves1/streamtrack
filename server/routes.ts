@@ -84,7 +84,7 @@ function setSessionCookie(res: Response, token: string) {
   });
 }
 
-function requireAuth(req: Request, res: Response, next: NextFunction) {
+async function requireAuth(req: Request, res: Response, next: NextFunction) {
   // Check Authorization header first, then fall back to cookie
   const authHeader = req.headers.authorization;
   let token: string | undefined;
@@ -96,7 +96,7 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!token) {
     return res.status(401).json({ error: "Not authenticated" });
   }
-  const userId = storage.getSession(token);
+  const userId = await storage.getSession(token);
   if (!userId) {
     return res.status(401).json({ error: "Invalid or expired session" });
   }
@@ -170,92 +170,74 @@ export function registerRoutes(httpServer: Server, app: Express) {
   // ---- Auth routes ----
 
   // Register
-  app.post("/api/auth/register", (req, res) => {
+  app.post("/api/auth/register", async (req, res) => {
     try {
       const { email, password, displayName } = registerSchema.parse(req.body);
-
-      const existing = storage.getUserByEmail(email);
-      if (existing) {
-        return res.status(409).json({ error: "An account with this email already exists" });
-      }
-
+      const existing = await storage.getUserByEmail(email);
+      if (existing) return res.status(409).json({ error: "An account with this email already exists" });
       const passwordHash = bcrypt.hashSync(password, 10);
-      const user = storage.createUser(email, passwordHash, displayName);
+      const user = await storage.createUser(email, passwordHash, displayName);
       const token = generateToken();
-      storage.createSession(token, user.id);
+      await storage.createSession(token, user.id);
       setSessionCookie(res, token);
-
-      res.status(201).json({
-        token,
-        user: { id: user.id, email: user.email, displayName: user.displayName },
-      });
+      res.status(201).json({ token, user: { id: user.id, email: user.email, displayName: user.displayName } });
     } catch (e) {
-      if (e instanceof z.ZodError) {
-        return res.status(400).json({ error: e.errors[0].message });
-      }
+      if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors[0].message });
       res.status(500).json({ error: "Failed to register" });
     }
   });
 
   // Login
-  app.post("/api/auth/login", (req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = loginSchema.parse(req.body);
-
-      const user = storage.getUserByEmail(email);
+      const user = await storage.getUserByEmail(email);
       if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
         return res.status(401).json({ error: "Invalid email or password" });
       }
-
       const token = generateToken();
-      storage.createSession(token, user.id);
+      await storage.createSession(token, user.id);
       setSessionCookie(res, token);
-
-      res.json({
-        token,
-        user: { id: user.id, email: user.email, displayName: user.displayName },
-      });
+      res.json({ token, user: { id: user.id, email: user.email, displayName: user.displayName } });
     } catch (e) {
-      if (e instanceof z.ZodError) {
-        return res.status(400).json({ error: e.errors[0].message });
-      }
+      if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors[0].message });
       res.status(500).json({ error: "Failed to login" });
     }
   });
 
   // Logout
-  app.post("/api/auth/logout", requireAuth, (req, res) => {
+  app.post("/api/auth/logout", requireAuth, async (req, res) => {
     const token = (req as any).token;
-    storage.deleteSession(token);
+    await storage.deleteSession(token);
     res.clearCookie(COOKIE_NAME);
     res.json({ ok: true });
   });
 
   // Get current user
-  app.get("/api/auth/me", requireAuth, (req, res) => {
+  app.get("/api/auth/me", requireAuth, async (req, res) => {
     const userId = (req as any).userId;
-    const user = storage.getUserById(userId);
+    const user = await storage.getUserById(userId);
     if (!user) return res.status(401).json({ error: "User not found" });
     res.json({ id: user.id, email: user.email, displayName: user.displayName });
   });
 
   // ---- Shows routes (auth required) ----
 
-  app.get("/api/shows", requireAuth, (_req, res) => {
+  app.get("/api/shows", requireAuth, async (_req, res) => {
     try {
       const userId = (_req as any).userId;
-      const allShows = storage.getAllShows(userId);
+      const allShows = await storage.getAllShows(userId);
       res.json(allShows);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch shows" });
     }
   });
 
-  app.get("/api/shows/:id", requireAuth, (req, res) => {
+  app.get("/api/shows/:id", requireAuth, async (req, res) => {
     try {
       const userId = (req as any).userId;
       const id = parseInt(req.params.id);
-      const show = storage.getShow(id, userId);
+      const show = await storage.getShow(id, userId);
       if (!show) return res.status(404).json({ error: "Show not found" });
       res.json(show);
     } catch (e) {
@@ -263,41 +245,37 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  app.post("/api/shows", requireAuth, (req, res) => {
+  app.post("/api/shows", requireAuth, async (req, res) => {
     try {
       const userId = (req as any).userId;
       const validated = insertShowSchema.parse(req.body);
-      const created = storage.createShow(userId, validated);
+      const created = await storage.createShow(userId, validated);
       res.status(201).json(created);
     } catch (e) {
-      if (e instanceof z.ZodError) {
-        return res.status(400).json({ error: e.errors });
-      }
+      if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors });
       res.status(500).json({ error: "Failed to create show" });
     }
   });
 
-  app.patch("/api/shows/:id", requireAuth, (req, res) => {
+  app.patch("/api/shows/:id", requireAuth, async (req, res) => {
     try {
       const userId = (req as any).userId;
       const id = parseInt(req.params.id);
       const validated = insertShowSchema.partial().parse(req.body);
-      const updated = storage.updateShow(id, userId, validated);
+      const updated = await storage.updateShow(id, userId, validated);
       if (!updated) return res.status(404).json({ error: "Show not found" });
       res.json(updated);
     } catch (e) {
-      if (e instanceof z.ZodError) {
-        return res.status(400).json({ error: e.errors });
-      }
+      if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors });
       res.status(500).json({ error: "Failed to update show" });
     }
   });
 
-  app.delete("/api/shows/:id", requireAuth, (req, res) => {
+  app.delete("/api/shows/:id", requireAuth, async (req, res) => {
     try {
       const userId = (req as any).userId;
       const id = parseInt(req.params.id);
-      const deleted = storage.deleteShow(id, userId);
+      const deleted = await storage.deleteShow(id, userId);
       if (!deleted) return res.status(404).json({ error: "Show not found" });
       res.status(204).send();
     } catch (e) {

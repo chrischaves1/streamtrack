@@ -56,6 +56,7 @@ import {
   LogOut,
   User,
   Loader2,
+  Star,
 } from "lucide-react";
 import {
   insertShowSchema,
@@ -537,16 +538,46 @@ function ShowForm({
   );
 }
 
+function StarRating({ value, onChange }: { value: number | null | undefined; onChange: (r: number) => void }) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const display = hovered ?? value ?? 0;
+  return (
+    <div className="flex items-center gap-0.5" data-testid="star-rating">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <button
+          key={star}
+          type="button"
+          className="p-0.5 transition-transform hover:scale-110"
+          onMouseEnter={() => setHovered(star)}
+          onMouseLeave={() => setHovered(null)}
+          onClick={() => onChange(value === star ? 0 : star)}
+          data-testid={`star-${star}`}
+        >
+          <Star
+            className={`h-4 w-4 transition-colors ${
+              star <= display
+                ? "fill-yellow-400 text-yellow-400"
+                : "fill-transparent text-muted-foreground/40"
+            }`}
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ShowCard({
   show,
   onEdit,
   onDelete,
   onStatusChange,
+  onRatingChange,
 }: {
   show: Show;
   onEdit: (show: Show) => void;
   onDelete: (id: number) => void;
   onStatusChange: (id: number, status: string) => void;
+  onRatingChange: (id: number, rating: number) => void;
 }) {
   const statusCfg =
     STATUS_CONFIG[show.status as keyof typeof STATUS_CONFIG] ||
@@ -654,6 +685,16 @@ function ShowCard({
           {show.notes}
         </p>
       )}
+
+      {/* Star rating */}
+      <div className="mt-3 flex items-center justify-between">
+        <StarRating value={show.rating} onChange={(r) => onRatingChange(show.id, r)} />
+        {show.rating ? (
+          <span className="text-xs text-muted-foreground">{show.rating}/5</span>
+        ) : (
+          <span className="text-xs text-muted-foreground/50">Rate it</span>
+        )}
+      </div>
 
       {/* Watch Now button */}
       <button
@@ -1084,6 +1125,9 @@ export default function HomePage() {
                         onDelete={(id) => deleteMutation.mutate(id)}
                         onStatusChange={(id, status) =>
                           updateMutation.mutate({ id, data: { status } })
+                        }
+                        onRatingChange={(id, rating) =>
+                          updateMutation.mutate({ id, data: { rating } })
                         }
                       />
                     ))}
