@@ -591,7 +591,23 @@ function ShowCard({
       className="group relative bg-card border border-border rounded-xl p-4 hover-elevate transition-all"
       data-testid={`card-show-${show.id}`}
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-3">
+        {/* Poster thumbnail */}
+        {show.posterUrl ? (
+          <img
+            src={show.posterUrl}
+            alt={show.title}
+            className="w-14 h-20 object-cover rounded-lg shrink-0 shadow-md"
+            data-testid={`img-poster-${show.id}`}
+          />
+        ) : (
+          <div className="w-14 h-20 rounded-lg shrink-0 bg-muted flex items-center justify-center">
+            <svg viewBox="0 0 24 24" className="w-6 h-6 text-muted-foreground/40" fill="currentColor">
+              <path d="M18 3v2h-2V3H8v2H6V3H4v18h2v-2h2v2h8v-2h2v2h2V3h-2zM8 17H6v-2h2v2zm0-4H6v-2h2v2zm0-4H6V7h2v2zm10 8h-2v-2h2v2zm0-4h-2v-2h2v2zm0-4h-2V7h2v2z"/>
+            </svg>
+          </div>
+        )}
+
         <div className="flex-1 min-w-0">
           <h3
             className="font-semibold text-foreground text-base leading-tight truncate"
