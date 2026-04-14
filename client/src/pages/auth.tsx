@@ -5,10 +5,18 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Tv, LogIn, UserPlus } from "lucide-react";
 
+// Safe localStorage helpers — fail silently if blocked (e.g. sandboxed iframes)
+function lsGet(key: string): string {
+  try { return localStorage.getItem(key) ?? ""; } catch { return ""; }
+}
+function lsSet(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch {}
+}
+
 export default function AuthPage() {
   const { login, register } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => lsGet("st_email"));
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState("");
@@ -21,8 +29,10 @@ export default function AuthPage() {
     try {
       if (mode === "login") {
         await login(email, password);
+        lsSet("st_email", email); // save email on successful login
       } else {
         await register(email, password, displayName);
+        lsSet("st_email", email);
       }
     } catch (err: any) {
       setError(err.message || "Something went wrong");
