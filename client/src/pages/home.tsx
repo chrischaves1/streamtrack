@@ -69,9 +69,65 @@ import {
 } from "@shared/schema";
 
 // Deep links for each streaming service.
-// Returns the web URL for a given streaming service and show title.
+// ─── Affiliate & Sponsor Configuration ───────────────────────────────────
+// Add your affiliate / tracking IDs here. When an ID is present the watch link
+// will use the affiliate URL variant; otherwise the plain URL is used.
+// Swap the empty strings for your real IDs when you're ready.
+const AFFILIATE_CONFIG: Record<string, { id: string; buildUrl: (q: string, id: string) => string }> = {
+  "Amazon Prime": {
+    id: "",  // Your Amazon Associates tag, e.g. "streamtrack-20"
+    buildUrl: (q, id) => `https://www.amazon.com/s?k=${q}&i=instant-video&tag=${id}`,
+  },
+  "Apple TV+": {
+    id: "",  // Apple Services Performance Partner ID
+    buildUrl: (q, id) => `https://tv.apple.com/search?term=${q}&at=${id}`,
+  },
+  "Hulu": {
+    id: "",  // Hulu affiliate network ID (e.g. via Impact or CJ)
+    buildUrl: (q, id) => `https://www.hulu.com/search?q=${q}&utm_affiliate=${id}`,
+  },
+  "Netflix": {
+    id: "",  // Netflix doesn't currently have a public affiliate program
+    buildUrl: (q, id) => `https://www.netflix.com/search?q=${q}`,
+  },
+  "Disney+": {
+    id: "",  // Disney+ affiliate (via Impact)
+    buildUrl: (_q, id) => `https://www.disneyplus.com/?cid=${id}`,
+  },
+  "HBO Max": {
+    id: "",  // Max affiliate ID
+    buildUrl: (_q, id) => `https://www.hbomax.com/?utm_id=${id}`,
+  },
+  "Paramount+": {
+    id: "",  // Paramount+ affiliate (via Impact/CJ)
+    buildUrl: (q, id) => `https://www.paramountplus.com/search/?q=${q}&irclickid=${id}`,
+  },
+  "Peacock": {
+    id: "",  // Peacock affiliate ID
+    buildUrl: (_q, id) => `https://www.peacocktv.com/?cid=${id}`,
+  },
+};
+
+// Sponsored service — appears as "⭐ Featured" at the top of the dropdown.
+// Set to null to disable. Change the name to any service from STREAMING_SERVICES.
+const SPONSORED_SERVICE: {
+  name: string;
+  label: string;   // display label in the dropdown
+} | null = null;
+// Example — uncomment to enable:
+// const SPONSORED_SERVICE = { name: "Peacock", label: "⭐ Peacock — Featured" };
+
+// ─── Watch URL builder ───────────────────────────────────────────────────
 function getWatchUrl(service: string, title: string): string {
   const q = encodeURIComponent(title);
+
+  // If an affiliate ID is configured for this service, use the affiliate URL
+  const aff = AFFILIATE_CONFIG[service];
+  if (aff && aff.id) {
+    return aff.buildUrl(q, aff.id);
+  }
+
+  // Fallback: plain web URLs
   switch (service) {
     case "Netflix":      return `https://www.netflix.com/search?q=${q}`;
     case "Hulu":         return `https://www.hulu.com/search?q=${q}`;
@@ -94,6 +150,14 @@ function getWatchUrl(service: string, title: string): string {
 // Opens the streaming service website in a new tab.
 function openWatchLink(service: string, title: string) {
   window.open(getWatchUrl(service, title), "_blank");
+}
+
+// Returns the list of streaming services for the dropdown, with the
+// sponsored service pinned at the top (if configured).
+function getOrderedServices(): string[] {
+  if (!SPONSORED_SERVICE) return [...STREAMING_SERVICES];
+  const rest = STREAMING_SERVICES.filter((s) => s !== SPONSORED_SERVICE.name);
+  return [SPONSORED_SERVICE.name, ...rest];
 }
 
 // Service icon colors map
@@ -355,9 +419,11 @@ function ShowForm({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {STREAMING_SERVICES.map((s) => (
+                    {getOrderedServices().map((s) => (
                       <SelectItem key={s} value={s}>
-                        {s}
+                        {SPONSORED_SERVICE && s === SPONSORED_SERVICE.name
+                          ? SPONSORED_SERVICE.label
+                          : s}
                       </SelectItem>
                     ))}
                   </SelectContent>
