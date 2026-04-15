@@ -116,6 +116,8 @@ function getWatchUrls(service: string, title: string): { appUrl: string | null; 
 
 // Opens the streaming service app if installed, falls back to the web URL
 // after 2 seconds if the app didn't launch (timed fallback pattern).
+// Uses a hidden iframe to attempt the app scheme so the current page
+// is not navigated away (avoids Safari "address invalid" on the main page).
 function openWatchLink(service: string, title: string) {
   const { appUrl, webUrl } = getWatchUrls(service, title);
 
@@ -125,30 +127,32 @@ function openWatchLink(service: string, title: string) {
     return;
   }
 
-  // Record when we tried to launch the app
-  const start = Date.now();
+  // Create a hidden iframe to attempt the custom scheme without
+  // navigating the current page. If the app is installed, iOS/Android
+  // will launch it. If not, nothing visible happens on the page.
+  const iframe = document.createElement("iframe");
+  iframe.style.display = "none";
+  document.body.appendChild(iframe);
+  iframe.src = appUrl;
 
-  // Set a timer: if the page is still in focus after 2s, the app
-  // didn't open (not installed), so fall back to the web URL.
+  // After 2 seconds, if the page is still visible the app didn't open.
+  // Fall back to the web URL and clean up the iframe.
   const timer = setTimeout(() => {
-    // If the document is still visible the app didn't take over
+    document.body.removeChild(iframe);
     if (!document.hidden) {
       window.open(webUrl, "_blank");
     }
   }, 2000);
 
-  // Also cancel the fallback if the user switches away quickly
-  // (meaning the app DID open)
+  // If the app DID open, the page goes hidden — cancel the fallback.
   const handleVisibilityChange = () => {
     if (document.hidden) {
       clearTimeout(timer);
+      document.body.removeChild(iframe);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     }
   };
   document.addEventListener("visibilitychange", handleVisibilityChange);
-
-  // Try the app scheme — this opens the app if installed
-  window.location.href = appUrl;
 }
 
 function getWatchUrl(service: string, title: string): string {
