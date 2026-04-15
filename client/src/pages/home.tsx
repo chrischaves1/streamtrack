@@ -114,19 +114,24 @@ function getWatchUrls(service: string, title: string): { appUrl: string | null; 
   }
 }
 
-// Opens the streaming app directly on mobile; falls back to web if not installed or on desktop.
+// Opens the streaming service. On mobile tries the app deep link first;
+// on desktop (or if no app scheme) goes straight to the web URL.
 function openWatchLink(service: string, title: string) {
   const { appUrl, webUrl } = getWatchUrls(service, title);
-  if (!appUrl) {
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  // Desktop: always open web URL directly — no app schemes
+  if (!appUrl || !isMobile) {
     window.open(webUrl, "_blank");
     return;
   }
-  // Attempt the app scheme. After 1s with no blur (app didn't take focus), open web fallback.
+
+  // Mobile: try app scheme; fall back to web after 1.5s if app doesn't open
   let fallbackFired = false;
   const fallbackTimer = setTimeout(() => {
     fallbackFired = true;
     window.open(webUrl, "_blank");
-  }, 1000);
+  }, 1500);
   window.addEventListener("blur", () => {
     if (!fallbackFired) clearTimeout(fallbackTimer);
   }, { once: true });
