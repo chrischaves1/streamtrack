@@ -746,12 +746,35 @@ export default function HomePage() {
       id: number;
       data: Partial<FormValues>;
     }) => apiRequest("PATCH", `/api/shows/${id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/shows"] });
-      setEditShow(null);
-      toast({ title: "Show updated!" });
+    // Optimistic update: immediately apply the change in the cache so the
+    // UI reflects it instantly without waiting for the server round-trip.
+    onMutate: async ({ id, data }) => {
+      // Cancel any in-flight refetches so they don't overwrite our optimistic value
+      await queryClient.cancelQueries({ queryKey: ["/api/shows"] });
+      // Snapshot the current cache so we can roll back on error
+      const previous = queryClient.getQueryData(["/api/shows"]);
+      // Apply the change immediately in the cache
+      queryClient.setQueryData(["/api/shows"], (old: any) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((show: any) =>
+          show.id === id ? { ...show, ...data } : show
+        );
+      });
+      return { previous };
     },
-    onError: () => {
+    onSuccess: (_result, { data }) => {
+      // Only invalidate (refetch) when it's a full edit-dialog save, not a quick rating tap
+      if (!('rating' in data && Object.keys(data).length === 1)) {
+        queryClient.invalidateQueries({ queryKey: ["/api/shows"] });
+        toast({ title: "Show updated!" });
+      }
+      setEditShow(null);
+    },
+    onError: (_err, _vars, context: any) => {
+      // Roll back to the snapshot if the save failed
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/shows"], context.previous);
+      }
       toast({
         title: "Error",
         description: "Failed to update show.",
