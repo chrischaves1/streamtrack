@@ -114,27 +114,40 @@ function getWatchUrls(service: string, title: string): { appUrl: string | null; 
   }
 }
 
-// Opens the streaming service. On mobile tries the app deep link first;
-// on desktop (or if no app scheme) goes straight to the web URL.
+// Opens the streaming service app if installed, falls back to the web URL
+// after 2 seconds if the app didn't launch (timed fallback pattern).
 function openWatchLink(service: string, title: string) {
   const { appUrl, webUrl } = getWatchUrls(service, title);
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  // Desktop: always open web URL directly — no app schemes
-  if (!appUrl || !isMobile) {
+  // No app scheme for this service — go straight to web
+  if (!appUrl) {
     window.open(webUrl, "_blank");
     return;
   }
 
-  // Mobile: try app scheme; fall back to web after 1.5s if app doesn't open
-  let fallbackFired = false;
-  const fallbackTimer = setTimeout(() => {
-    fallbackFired = true;
-    window.open(webUrl, "_blank");
-  }, 1500);
-  window.addEventListener("blur", () => {
-    if (!fallbackFired) clearTimeout(fallbackTimer);
-  }, { once: true });
+  // Record when we tried to launch the app
+  const start = Date.now();
+
+  // Set a timer: if the page is still in focus after 2s, the app
+  // didn't open (not installed), so fall back to the web URL.
+  const timer = setTimeout(() => {
+    // If the document is still visible the app didn't take over
+    if (!document.hidden) {
+      window.open(webUrl, "_blank");
+    }
+  }, 2000);
+
+  // Also cancel the fallback if the user switches away quickly
+  // (meaning the app DID open)
+  const handleVisibilityChange = () => {
+    if (document.hidden) {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    }
+  };
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  // Try the app scheme — this opens the app if installed
   window.location.href = appUrl;
 }
 
