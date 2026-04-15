@@ -299,14 +299,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     try {
       const userId = (req as any).userId;
       const validated = insertShowSchema.parse(req.body);
-      // Duplicate check: same title (case-insensitive) for this user
-      const existing = await storage.getShowsByUser(userId);
-      const duplicate = existing.find(
-        (s) => s.title.toLowerCase() === validated.title.toLowerCase()
-      );
-      if (duplicate) {
-        return res.status(409).json({ error: `"${duplicate.title}" is already in your list.` });
-      }
       const created = await storage.createShow(userId, validated);
       res.status(201).json(created);
     } catch (e) {
