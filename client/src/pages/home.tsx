@@ -782,6 +782,7 @@ export default function HomePage() {
   const [filterService, setFilterService] = useState<string>("all");
   const [filterGenre, setFilterGenre] = useState<string>("all");
   const [addOpen, setAddOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   // Top-level ratings map: source of truth for star ratings.
   // Lives outside the server cache so refetches never overwrite user-set ratings.
   const [ratingsMap, setRatingsMap] = useState<Record<number, number>>({});
@@ -961,8 +962,8 @@ export default function HomePage() {
             </span>
           </div>
 
-          {/* Search */}
-          <div className="flex-1 max-w-xs relative" data-testid="search-container">
+          {/* Search — hidden on mobile, visible on sm+ */}
+          <div className="hidden sm:flex flex-1 max-w-xs relative" data-testid="search-container">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input
               placeholder="Search shows..."
@@ -974,7 +975,17 @@ export default function HomePage() {
           </div>
 
           {/* Social + Add button + user menu */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
+          {/* Mobile search icon */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 sm:hidden"
+            onClick={() => setMobileSearchOpen((o) => !o)}
+            aria-label="Search"
+          >
+            <Search className="h-4 w-4" />
+          </Button>
           <Link href="/social">
             <Button variant="ghost" size="icon" className="h-9 w-9" data-testid="button-social">
               <Users className="h-4 w-4" />
@@ -982,9 +993,10 @@ export default function HomePage() {
           </Link>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button data-testid="button-add-show">
-                <Plus className="h-4 w-4 mr-1.5" />
-                Add Show
+              {/* On mobile: icon only. On sm+: full label */}
+              <Button data-testid="button-add-show" className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">Add Show</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
@@ -1028,6 +1040,23 @@ export default function HomePage() {
           </div>
         </div>
       </header>
+
+      {/* Mobile search bar — drops below header */}
+      {mobileSearchOpen && (
+        <div className="sm:hidden px-4 py-2 bg-background/95 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              autoFocus
+              placeholder="Search shows..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 bg-muted/50 w-full"
+              data-testid="input-search-mobile"
+            />
+          </div>
+        </div>
+      )}
 
       <main className="max-w-5xl mx-auto px-4 py-6">
         {/* Stats bar */}
