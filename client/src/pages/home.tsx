@@ -575,34 +575,8 @@ function ShowForm({
 }
 
 function StarRating({ value, onChange }: { value: number | null | undefined; onChange: (r: number) => void }) {
-  // localValue is the source of truth for display — initialized from server
-  // value and updated instantly on tap, independent of server round-trips.
-  const [localValue, setLocalValue] = useState<number>(value ?? 0);
   const [hovered, setHovered] = useState<number | null>(null);
-
-  // Only sync from server when the server value changes AND we're not
-  // in the middle of a local change (i.e. only on first load / external updates)
-  const prevServerValue = useRef(value);
-  useEffect(() => {
-    // If server sent a genuinely different value (e.g. initial load or another
-    // device changed it), sync it in — but only if our local state still matches
-    // the old server value (meaning the user hasn't tapped since last sync).
-    if (value !== prevServerValue.current) {
-      if (localValue === (prevServerValue.current ?? 0)) {
-        setLocalValue(value ?? 0);
-      }
-      prevServerValue.current = value;
-    }
-  }, [value]);
-
-  const display = hovered ?? localValue;
-
-  function handleClick(star: number) {
-    const next = localValue === star ? 0 : star;
-    setLocalValue(next);
-    onChange(next);
-  }
-
+  const display = hovered ?? value ?? 0;
   return (
     <div className="flex items-center gap-0.5" data-testid="star-rating">
       {[1, 2, 3, 4, 5].map((star) => (
@@ -612,7 +586,7 @@ function StarRating({ value, onChange }: { value: number | null | undefined; onC
           className="p-0.5 transition-transform hover:scale-110"
           onMouseEnter={() => setHovered(star)}
           onMouseLeave={() => setHovered(null)}
-          onClick={() => handleClick(star)}
+          onClick={() => onChange(value === star ? 0 : star)}
           data-testid={`star-${star}`}
         >
           <Star
@@ -641,14 +615,6 @@ function ShowCard({
   onStatusChange: (id: number, status: string) => void;
   onRatingChange: (id: number, rating: number) => void;
 }) {
-  // Local display rating — updates instantly on tap without waiting for the server
-  const [displayRating, setDisplayRating] = useState<number>(show.rating ?? 0);
-
-  function handleRatingChange(r: number) {
-    setDisplayRating(r);
-    onRatingChange(show.id, r);
-  }
-
   const statusCfg =
     STATUS_CONFIG[show.status as keyof typeof STATUS_CONFIG] ||
     STATUS_CONFIG.watching;
@@ -774,9 +740,9 @@ function ShowCard({
 
       {/* Star rating */}
       <div className="mt-3 flex items-center justify-between">
-        <StarRating value={displayRating} onChange={handleRatingChange} />
-        {displayRating > 0 ? (
-          <span className="text-xs text-muted-foreground">{displayRating}/5</span>
+        <StarRating value={show.rating} onChange={(r) => onRatingChange(show.id, r)} />
+        {show.rating ? (
+          <span className="text-xs text-muted-foreground">{show.rating}/5</span>
         ) : (
           <span className="text-xs text-muted-foreground/50">Rate it</span>
         )}
@@ -816,6 +782,9 @@ export default function HomePage() {
   const [filterService, setFilterService] = useState<string>("all");
   const [filterGenre, setFilterGenre] = useState<string>("all");
   const [addOpen, setAddOpen] = useState(false);
+  // Top-level ratings map: source of truth for star ratings.
+  // Lives outside the server cache so refetches never overwrite user-set ratings.
+  const [ratingsMap, setRatingsMap] = useState<Record<number, number>>({});
   const [editShow, setEditShow] = useState<Show | null>(null);
 
   const { data: shows = [], isLoading } = useQuery<Show[]>({
@@ -837,23 +806,17 @@ export default function HomePage() {
     },
   });
 
-  // Dedicated mutation for star ratings — updates only the single show in the
-  // cache instantly without touching any other show or triggering a refetch.
-  // This means multiple rapid ratings never interfere with each other.
+  // Dedicated mutation for star ratings.
+  // ratingsMap (React state) is the display source of truth — never touches
+  // the query cache, so any refetch of shows cannot overwrite a rating the
+  // user just set.
   const ratingMutation = useMutation({
     mutationFn: ({ id, rating }: { id: number; rating: number }) =>
       apiRequest("PATCH", `/api/shows/${id}`, { rating }),
-    onMutate: ({ id, rating }) => {
-      // Immediately patch just this show in the cache — no snapshots, no rollback
-      queryClient.setQueryData(["/api/shows"], (old: any) => {
-        if (!Array.isArray(old)) return old;
-        return old.map((s: any) => (s.id === id ? { ...s, rating } : s));
-      });
-    },
-    // No onSuccess invalidation — the cache already has the right value.
-    // On error, silently refetch to get the real server state.
-    onError: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/shows"] });
+    onError: (_err, { id }) => {
+      // On failure, clear the local override so the server value shows
+      setRatingsMap((prev) => { const next = { ...prev }; delete next[id]; return next; });
+      toast({ title: "Failed to save rating", variant: "destructive" });
     },
   });
 
@@ -1265,15 +1228,25 @@ export default function HomePage() {
                     {items.map((show) => (
                       <ShowCard
                         key={show.id}
-                        show={show}
+                        show={{
+                          ...show,
+                          // Merge local rating override so server refetches
+                          // never overwrite a rating the user just tapped
+                          rating: ratingsMap[show.id] !== undefined
+                            ? ratingsMap[show.id]
+                            : show.rating,
+                        }}
                         onEdit={setEditShow}
                         onDelete={(id) => deleteMutation.mutate(id)}
                         onStatusChange={(id, status) =>
                           updateMutation.mutate({ id, data: { status } })
                         }
-                        onRatingChange={(id, rating) =>
-                          ratingMutation.mutate({ id, rating })
-                        }
+                        onRatingChange={(id, rating) => {
+                          // Write into ratingsMap immediately — this is the
+                          // display source of truth, independent of the cache
+                          setRatingsMap((prev) => ({ ...prev, [id]: rating }));
+                          ratingMutation.mutate({ id, rating });
+                        }}
                       />
                     ))}
                   </div>
