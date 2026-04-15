@@ -69,94 +69,31 @@ import {
 } from "@shared/schema";
 
 // Deep links for each streaming service.
-// Returns { appUrl, webUrl } — appUrl is the mobile app scheme (opens the app
-// directly on phones), webUrl is the https fallback for desktop browsers.
-function getWatchUrls(service: string, title: string): { appUrl: string | null; webUrl: string } {
+// Returns the web URL for a given streaming service and show title.
+function getWatchUrl(service: string, title: string): string {
   const q = encodeURIComponent(title);
   switch (service) {
-    case "Netflix":
-      // Netflix search works in browser even though it blocks bots
-      return { appUrl: `nflx://www.netflix.com/search?q=${q}`, webUrl: `https://www.netflix.com/search?q=${q}` };
-    case "Hulu":
-      return { appUrl: `hulu://search?query=${q}`, webUrl: `https://www.hulu.com/search?q=${q}` };
-    case "Disney+":
-      // Disney+ search requires login; land on homepage so user can search
-      return { appUrl: `disneyplus://`, webUrl: `https://www.disneyplus.com/` };
-    case "HBO Max":
-      // play.max.com redirects to hbomax.com; use hbomax.com directly
-      return { appUrl: `hbomax://`, webUrl: `https://www.hbomax.com/` };
-    case "Amazon Prime":
-      return { appUrl: `aiv://search?phrase=${q}`, webUrl: `https://www.amazon.com/s?k=${q}&i=instant-video` };
-    case "Apple TV+":
-      return { appUrl: `videos://search?term=${q}`, webUrl: `https://tv.apple.com/search?term=${q}` };
-    case "Paramount+":
-      // Trailing slash on /search/ is required for 200 response
-      return { appUrl: `paramountplus://`, webUrl: `https://www.paramountplus.com/search/?q=${q}` };
-    case "Peacock":
-      // Peacock search redirects to login without session; land on homepage
-      return { appUrl: `peacocktv://`, webUrl: `https://www.peacocktv.com/` };
-    case "ESPN+":
-      return { appUrl: null, webUrl: `https://www.espn.com/espnplus/` };
-    case "YouTube TV":
-      return { appUrl: null, webUrl: `https://tv.youtube.com/welcome/?query=${q}` };
-    case "Tubi":
-      return { appUrl: `tubi://search?q=${q}`, webUrl: `https://tubitv.com/search/${q}` };
-    case "Pluto TV":
-      return { appUrl: `pluto://`, webUrl: `https://pluto.tv/` };
-    case "Crunchyroll":
-      // Crunchyroll search requires JS/login; land on homepage
-      return { appUrl: `crunchyroll://`, webUrl: `https://www.crunchyroll.com/` };
-    case "Funimation":
-      // Funimation merged into Crunchyroll
-      return { appUrl: null, webUrl: `https://www.crunchyroll.com/` };
-    default:
-      return { appUrl: null, webUrl: `https://www.google.com/search?q=${q}+streaming` };
+    case "Netflix":      return `https://www.netflix.com/search?q=${q}`;
+    case "Hulu":         return `https://www.hulu.com/search?q=${q}`;
+    case "Disney+":      return `https://www.disneyplus.com/`;
+    case "HBO Max":      return `https://www.hbomax.com/`;
+    case "Amazon Prime": return `https://www.amazon.com/s?k=${q}&i=instant-video`;
+    case "Apple TV+":    return `https://tv.apple.com/search?term=${q}`;
+    case "Paramount+":   return `https://www.paramountplus.com/search/?q=${q}`;
+    case "Peacock":      return `https://www.peacocktv.com/`;
+    case "ESPN+":        return `https://www.espn.com/espnplus/`;
+    case "YouTube TV":   return `https://tv.youtube.com/welcome/?query=${q}`;
+    case "Tubi":         return `https://tubitv.com/search/${q}`;
+    case "Pluto TV":     return `https://pluto.tv/`;
+    case "Crunchyroll":  return `https://www.crunchyroll.com/`;
+    case "Funimation":   return `https://www.crunchyroll.com/`;
+    default:             return `https://www.google.com/search?q=${q}+streaming`;
   }
 }
 
-// Opens the streaming service app if installed, falls back to the web URL
-// after 2 seconds if the app didn't launch (timed fallback pattern).
-// Uses a hidden iframe to attempt the app scheme so the current page
-// is not navigated away (avoids Safari "address invalid" on the main page).
+// Opens the streaming service website in a new tab.
 function openWatchLink(service: string, title: string) {
-  const { appUrl, webUrl } = getWatchUrls(service, title);
-
-  // No app scheme for this service — go straight to web
-  if (!appUrl) {
-    window.open(webUrl, "_blank");
-    return;
-  }
-
-  // Create a hidden iframe to attempt the custom scheme without
-  // navigating the current page. If the app is installed, iOS/Android
-  // will launch it. If not, nothing visible happens on the page.
-  const iframe = document.createElement("iframe");
-  iframe.style.display = "none";
-  document.body.appendChild(iframe);
-  iframe.src = appUrl;
-
-  // After 2 seconds, if the page is still visible the app didn't open.
-  // Fall back to the web URL and clean up the iframe.
-  const timer = setTimeout(() => {
-    document.body.removeChild(iframe);
-    if (!document.hidden) {
-      window.open(webUrl, "_blank");
-    }
-  }, 2000);
-
-  // If the app DID open, the page goes hidden — cancel the fallback.
-  const handleVisibilityChange = () => {
-    if (document.hidden) {
-      clearTimeout(timer);
-      document.body.removeChild(iframe);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    }
-  };
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-}
-
-function getWatchUrl(service: string, title: string): string {
-  return getWatchUrls(service, title).webUrl;
+  window.open(getWatchUrl(service, title), "_blank");
 }
 
 // Service icon colors map
