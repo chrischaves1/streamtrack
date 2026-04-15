@@ -73,37 +73,42 @@ import {
 // directly on phones), webUrl is the https fallback for desktop browsers.
 function getWatchUrls(service: string, title: string): { appUrl: string | null; webUrl: string } {
   const q = encodeURIComponent(title);
-  const googleSite = (site: string) =>
-    `https://www.google.com/search?q=${q}+site%3A${site}`;
   switch (service) {
     case "Netflix":
+      // Netflix search works in browser even though it blocks bots
       return { appUrl: `nflx://www.netflix.com/search?q=${q}`, webUrl: `https://www.netflix.com/search?q=${q}` };
     case "Hulu":
       return { appUrl: `hulu://search?query=${q}`, webUrl: `https://www.hulu.com/search?q=${q}` };
     case "Disney+":
-      return { appUrl: `disneyplus://search/${q}`, webUrl: `https://www.disneyplus.com/search/${q}` };
+      // Disney+ search requires login; land on homepage so user can search
+      return { appUrl: `disneyplus://`, webUrl: `https://www.disneyplus.com/` };
     case "HBO Max":
-      return { appUrl: `hbomax://`, webUrl: `https://play.max.com/search?q=${q}` };
+      // play.max.com redirects to hbomax.com; use hbomax.com directly
+      return { appUrl: `hbomax://`, webUrl: `https://www.hbomax.com/` };
     case "Amazon Prime":
       return { appUrl: `aiv://search?phrase=${q}`, webUrl: `https://www.amazon.com/s?k=${q}&i=instant-video` };
     case "Apple TV+":
       return { appUrl: `videos://search?term=${q}`, webUrl: `https://tv.apple.com/search?term=${q}` };
     case "Paramount+":
-      return { appUrl: `paramountplus://`, webUrl: `https://www.paramountplus.com/search/${q}/` };
+      // Trailing slash on /search/ is required for 200 response
+      return { appUrl: `paramountplus://`, webUrl: `https://www.paramountplus.com/search/?q=${q}` };
     case "Peacock":
-      return { appUrl: `peacocktv://search?q=${q}`, webUrl: googleSite("peacocktv.com") };
+      // Peacock search redirects to login without session; land on homepage
+      return { appUrl: `peacocktv://`, webUrl: `https://www.peacocktv.com/` };
     case "ESPN+":
-      return { appUrl: `sportscenter://search?q=${q}`, webUrl: googleSite("espnplus.com") };
+      return { appUrl: null, webUrl: `https://www.espn.com/espnplus/` };
     case "YouTube TV":
-      return { appUrl: `youtubetvs://search/${q}`, webUrl: `https://tv.youtube.com/search/${q}` };
+      return { appUrl: null, webUrl: `https://tv.youtube.com/welcome/?query=${q}` };
     case "Tubi":
       return { appUrl: `tubi://search?q=${q}`, webUrl: `https://tubitv.com/search/${q}` };
     case "Pluto TV":
-      return { appUrl: `pluto://search?q=${q}`, webUrl: `https://pluto.tv/search#${q}` };
+      return { appUrl: `pluto://`, webUrl: `https://pluto.tv/` };
     case "Crunchyroll":
-      return { appUrl: `crunchyroll://search?q=${q}`, webUrl: `https://www.crunchyroll.com/search?q=${q}` };
+      // Crunchyroll search requires JS/login; land on homepage
+      return { appUrl: `crunchyroll://`, webUrl: `https://www.crunchyroll.com/` };
     case "Funimation":
-      return { appUrl: null, webUrl: `https://www.funimation.com/search/?q=${q}` };
+      // Funimation merged into Crunchyroll
+      return { appUrl: null, webUrl: `https://www.crunchyroll.com/` };
     default:
       return { appUrl: null, webUrl: `https://www.google.com/search?q=${q}+streaming` };
   }
