@@ -806,17 +806,25 @@ export default function HomePage() {
     },
   });
 
+  // Pending rating saves that need to be retried
+  const pendingRatings = useRef<Record<number, number>>({});
+
   // Dedicated mutation for star ratings.
-  // ratingsMap (React state) is the display source of truth — never touches
-  // the query cache, so any refetch of shows cannot overwrite a rating the
-  // user just set.
+  // ratingsMap (React state) is the display source of truth — never cleared
+  // on error so the user always sees what they tapped.
   const ratingMutation = useMutation({
     mutationFn: ({ id, rating }: { id: number; rating: number }) =>
-      apiRequest("PATCH", `/api/shows/${id}`, { rating }),
-    onError: (_err, { id }) => {
-      // On failure, clear the local override so the server value shows
-      setRatingsMap((prev) => { const next = { ...prev }; delete next[id]; return next; });
-      toast({ title: "Failed to save rating", variant: "destructive" });
+      apiRequest("PATCH", `/api/shows/${id}`, { rating }).then(async (res) => {
+        if (!res.ok) throw new Error(`${res.status}`);
+        delete pendingRatings.current[id];
+        return res;
+      }),
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+    onError: (_err, { id, rating }) => {
+      // Keep ratingsMap intact (don't revert display) — just note it as pending
+      // so we can retry next time the user interacts
+      pendingRatings.current[id] = rating;
     },
   });
 
@@ -856,6 +864,20 @@ export default function HomePage() {
       });
     },
   });
+
+  // Flush any ratings that failed to save (e.g. server was asleep on Render)
+  // whenever the page becomes visible again
+  useEffect(() => {
+    function onVisible() {
+      if (!document.hidden) {
+        Object.entries(pendingRatings.current).forEach(([idStr, rating]) => {
+          ratingMutation.mutate({ id: Number(idStr), rating });
+        });
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   // Derive active genres for filter dropdown
   const activeGenres = Array.from(new Set(shows.map((s) => s.genre).filter(Boolean) as string[])).sort();
