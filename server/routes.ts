@@ -295,6 +295,18 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
+  // TEMPORARY: one-time admin endpoint to clear all shows for a user
+  // This will be removed after use
+  app.delete("/api/admin/clear-shows", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      await storage.clearShowsForUser(userId);
+      res.json({ ok: true, message: "All shows cleared" });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to clear shows" });
+    }
+  });
+
   app.post("/api/shows", requireAuth, async (req, res) => {
     try {
       const userId = (req as any).userId;

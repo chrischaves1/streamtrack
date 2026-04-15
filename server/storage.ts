@@ -77,6 +77,7 @@ export interface IStorage {
   createShow(userId: number, show: InsertShow): Promise<Show>;
   updateShow(id: number, userId: number, show: Partial<InsertShow>): Promise<Show | undefined>;
   deleteShow(id: number, userId: number): Promise<boolean>;
+  clearShowsForUser(userId: number): Promise<void>;
 
   // Password reset
   createPasswordResetToken(userId: number, token: string, expiresAt: number): Promise<void>;
@@ -189,6 +190,9 @@ const sqliteStorage: IStorage = {
   async deleteShow(id, userId) {
     const result = sqlite.prepare(`DELETE FROM shows WHERE id = ? AND user_id = ?`).run(id, userId);
     return result.changes > 0;
+  },
+  async clearShowsForUser(userId) {
+    sqlite.prepare(`DELETE FROM shows WHERE user_id = ?`).run(userId);
   },
   async createPasswordResetToken(userId, token, expiresAt) {
     sqlite.prepare(
@@ -430,6 +434,9 @@ async function getPgStorage(): Promise<IStorage> {
       const res = await pool.query(`DELETE FROM shows WHERE id = $1 AND user_id = $2 RETURNING id`, [id, userId]);
       return res.rows.length > 0;
     },
+    async clearShowsForUser(userId) {
+      await pool.query(`DELETE FROM shows WHERE user_id = $1`, [userId]);
+    },
     async createPasswordResetToken(userId, token, expiresAt) {
       await pool.query(
         `INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES ($1, $2, $3) ON CONFLICT (token) DO UPDATE SET user_id=$2, expires_at=$3`,
@@ -523,6 +530,7 @@ export const storage: IStorage = {
   async createShow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).createShow(...args); },
   async updateShow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).updateShow(...args); },
   async deleteShow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).deleteShow(...args); },
+  async clearShowsForUser(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).clearShowsForUser(...args); },
   async getUserByUsername(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).getUserByUsername(...args); },
   async updateUser(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).updateUser(...args); },
   async follow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).follow(...args); },
