@@ -2,8 +2,12 @@ import Database from "better-sqlite3";
 import { type User, type InsertShow, type Show } from "@shared/schema";
 import path from "path";
 
-// ── SQLite setup (always available for local dev; used on Render too until PG is configured) ──
-const sqlite = new Database(path.join(process.cwd(), "shows.db"));
+// ── SQLite setup ─────────────────────────────────────────────────────────────
+// DB_PATH env var lets Render (or any host) point to a persistent volume.
+// Falls back to process.cwd()/shows.db for local dev.
+const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), "shows.db");
+const sqlite = new Database(DB_PATH);
+console.log("[db] SQLite path:", DB_PATH);
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -45,6 +49,13 @@ sqlite.exec(`
     UNIQUE(follower_id, following_id)
   )
 `);
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  )
+`);
 // Migrations
 try { sqlite.exec(`ALTER TABLE shows ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE shows ADD COLUMN rating INTEGER`); } catch {}
@@ -66,6 +77,12 @@ export interface IStorage {
   createShow(userId: number, show: InsertShow): Promise<Show>;
   updateShow(id: number, userId: number, show: Partial<InsertShow>): Promise<Show | undefined>;
   deleteShow(id: number, userId: number): Promise<boolean>;
+
+  // Password reset
+  createPasswordResetToken(userId: number, token: string, expiresAt: number): Promise<void>;
+  getPasswordResetToken(token: string): Promise<{ userId: number; expiresAt: number } | undefined>;
+  deletePasswordResetToken(token: string): Promise<void>;
+  updatePassword(userId: number, passwordHash: string): Promise<void>;
 
   // Profile + follows
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -172,6 +189,22 @@ const sqliteStorage: IStorage = {
   async deleteShow(id, userId) {
     const result = sqlite.prepare(`DELETE FROM shows WHERE id = ? AND user_id = ?`).run(id, userId);
     return result.changes > 0;
+  },
+  async createPasswordResetToken(userId, token, expiresAt) {
+    sqlite.prepare(
+      `INSERT OR REPLACE INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)`
+    ).run(token, userId, expiresAt);
+  },
+  async getPasswordResetToken(token) {
+    const row = sqlite.prepare(`SELECT user_id, expires_at FROM password_reset_tokens WHERE token = ?`).get(token) as any;
+    if (!row) return undefined;
+    return { userId: row.user_id, expiresAt: row.expires_at };
+  },
+  async deletePasswordResetToken(token) {
+    sqlite.prepare(`DELETE FROM password_reset_tokens WHERE token = ?`).run(token);
+  },
+  async updatePassword(userId, passwordHash) {
+    sqlite.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(passwordHash, userId);
   },
   async getUserByUsername(username) {
     const row = sqlite.prepare(`SELECT * FROM users WHERE username = ?`).get(username);
@@ -284,6 +317,13 @@ async function getPgStorage(): Promise<IStorage> {
   await pool.query(`ALTER TABLE shows ADD COLUMN IF NOT EXISTS rating INTEGER`).catch(() => {});
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT UNIQUE`).catch(() => {});
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_public INTEGER DEFAULT 1`).catch(() => {});
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      expires_at BIGINT NOT NULL
+    )
+  `).catch(() => {});
 
   // Helper: map PG row (snake_case) → User object (camelCase)
   function rowToUser(row: any) {
@@ -390,6 +430,23 @@ async function getPgStorage(): Promise<IStorage> {
       const res = await pool.query(`DELETE FROM shows WHERE id = $1 AND user_id = $2 RETURNING id`, [id, userId]);
       return res.rows.length > 0;
     },
+    async createPasswordResetToken(userId, token, expiresAt) {
+      await pool.query(
+        `INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES ($1, $2, $3) ON CONFLICT (token) DO UPDATE SET user_id=$2, expires_at=$3`,
+        [token, userId, expiresAt]
+      );
+    },
+    async getPasswordResetToken(token) {
+      const res = await pool.query(`SELECT user_id, expires_at FROM password_reset_tokens WHERE token = $1`, [token]);
+      if (!res.rows[0]) return undefined;
+      return { userId: res.rows[0].user_id, expiresAt: res.rows[0].expires_at };
+    },
+    async deletePasswordResetToken(token) {
+      await pool.query(`DELETE FROM password_reset_tokens WHERE token = $1`, [token]);
+    },
+    async updatePassword(userId, passwordHash) {
+      await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [passwordHash, userId]);
+    },
     async getUserByUsername(username) {
       const res = await pool.query(`SELECT * FROM users WHERE username = $1`, [username]);
       return rowToUser(res.rows[0]);
@@ -475,4 +532,8 @@ export const storage: IStorage = {
   async isFollowing(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).isFollowing(...args); },
   async searchUsers(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).searchUsers(...args); },
   async getFeedShows(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).getFeedShows(...args); },
+  async createPasswordResetToken(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).createPasswordResetToken(...args); },
+  async getPasswordResetToken(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).getPasswordResetToken(...args); },
+  async deletePasswordResetToken(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).deletePasswordResetToken(...args); },
+  async updatePassword(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).updatePassword(...args); },
 };

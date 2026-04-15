@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertShowSchema, registerSchema, loginSchema } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 
 const TMDB_TOKEN = process.env.TMDB_TOKEN || "";
 const TMDB_BASE = "https://api.themoviedb.org/3";
@@ -210,6 +211,47 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[login error]", msg, e);
       res.status(500).json({ error: "Failed to login", detail: msg });
+    }
+  });
+
+  // Forgot password — generate reset token and return it (in prod would email it)
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ error: "Email required" });
+      const user = await storage.getUserByEmail(email);
+      // Always return success to avoid user enumeration
+      if (!user) return res.json({ message: "If that email exists, a reset link has been sent." });
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = Math.floor(Date.now() / 1000) + 60 * 60; // 1 hour
+      await storage.createPasswordResetToken(user.id, token, expiresAt);
+      // In production this would send an email. For now, return the token directly.
+      res.json({ message: "Reset token generated.", token, email: user.email });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(500).json({ error: "Failed to generate reset token", detail: msg });
+    }
+  });
+
+  // Reset password — consume token and set new password
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password) return res.status(400).json({ error: "Token and password required" });
+      if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+      const record = await storage.getPasswordResetToken(token);
+      if (!record) return res.status(400).json({ error: "Invalid or expired reset token" });
+      if (Math.floor(Date.now() / 1000) > record.expiresAt) {
+        await storage.deletePasswordResetToken(token);
+        return res.status(400).json({ error: "Reset token has expired" });
+      }
+      const passwordHash = await bcrypt.hash(password, 10);
+      await storage.updatePassword(record.userId, passwordHash);
+      await storage.deletePasswordResetToken(token);
+      res.json({ message: "Password updated successfully" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(500).json({ error: "Failed to reset password", detail: msg });
     }
   });
 

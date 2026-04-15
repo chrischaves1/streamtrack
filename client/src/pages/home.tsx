@@ -83,13 +83,13 @@ function getWatchUrls(service: string, title: string): { appUrl: string | null; 
     case "Disney+":
       return { appUrl: `disneyplus://search/${q}`, webUrl: `https://www.disneyplus.com/search/${q}` };
     case "HBO Max":
-      return { appUrl: `hbomax://search`, webUrl: `https://play.max.com/search` };
+      return { appUrl: `hbomax://`, webUrl: `https://play.max.com/search?q=${q}` };
     case "Amazon Prime":
       return { appUrl: `aiv://search?phrase=${q}`, webUrl: `https://www.amazon.com/s?k=${q}&i=instant-video` };
     case "Apple TV+":
       return { appUrl: `videos://search?term=${q}`, webUrl: `https://tv.apple.com/search?term=${q}` };
     case "Paramount+":
-      return { appUrl: `paramountplus://search?q=${q}`, webUrl: googleSite("paramountplus.com") };
+      return { appUrl: `paramountplus://`, webUrl: `https://www.paramountplus.com/search/${q}/` };
     case "Peacock":
       return { appUrl: `peacocktv://search?q=${q}`, webUrl: googleSite("peacocktv.com") };
     case "ESPN+":
@@ -750,6 +750,7 @@ export default function HomePage() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterService, setFilterService] = useState<string>("all");
+  const [filterGenre, setFilterGenre] = useState<string>("all");
   const [addOpen, setAddOpen] = useState(false);
   const [editShow, setEditShow] = useState<Show | null>(null);
 
@@ -810,6 +811,9 @@ export default function HomePage() {
     },
   });
 
+  // Derive active genres for filter dropdown
+  const activeGenres = Array.from(new Set(shows.map((s) => s.genre).filter(Boolean) as string[])).sort();
+
   const filtered = shows.filter((s) => {
     const matchSearch = s.title
       .toLowerCase()
@@ -818,7 +822,9 @@ export default function HomePage() {
       filterStatus === "all" || s.status === filterStatus;
     const matchService =
       filterService === "all" || s.streamingService === filterService;
-    return matchSearch && matchStatus && matchService;
+    const matchGenre =
+      filterGenre === "all" || s.genre === filterGenre;
+    return matchSearch && matchStatus && matchService && matchGenre;
   });
 
   // Group by status for display
@@ -1045,8 +1051,30 @@ export default function HomePage() {
               </Select>
             )}
 
+            {/* Genre filter */}
+            {activeGenres.length > 1 && (
+              <Select value={filterGenre} onValueChange={setFilterGenre}>
+                <SelectTrigger
+                  className="w-auto gap-1 bg-muted/50 border-border"
+                  data-testid="select-filter-genre"
+                >
+                  <SelectValue placeholder="All genres" />
+                  <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All genres</SelectItem>
+                  {activeGenres.map((g) => (
+                    <SelectItem key={g} value={g}>
+                      {g}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
             {(filterStatus !== "all" ||
               filterService !== "all" ||
+              filterGenre !== "all" ||
               search) && (
               <Button
                 variant="ghost"
@@ -1054,6 +1082,7 @@ export default function HomePage() {
                 onClick={() => {
                   setFilterStatus("all");
                   setFilterService("all");
+                  setFilterGenre("all");
                   setSearch("");
                 }}
                 className="text-muted-foreground text-xs"
@@ -1123,6 +1152,7 @@ export default function HomePage() {
               onClick={() => {
                 setFilterStatus("all");
                 setFilterService("all");
+                setFilterGenre("all");
                 setSearch("");
               }}
             >
