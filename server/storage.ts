@@ -1,11 +1,20 @@
 import Database from "better-sqlite3";
 import { type User, type InsertShow, type Show } from "@shared/schema";
 import path from "path";
+import fs from "fs";
 
 // ── SQLite setup ─────────────────────────────────────────────────────────────
 // DB_PATH env var lets Render (or any host) point to a persistent volume.
 // Falls back to process.cwd()/shows.db for local dev.
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), "shows.db");
+
+// Ensure the directory exists before opening the database.
+// This is needed when Render mounts a persistent disk (e.g. /data/shows.db).
+const dbDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
 const sqlite = new Database(DB_PATH);
 console.log("[db] SQLite path:", DB_PATH);
 
