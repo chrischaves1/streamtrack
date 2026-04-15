@@ -727,7 +727,6 @@ export default function HomePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shows"] });
       setAddOpen(false);
-      toast({ title: "Show added!", description: "Your show has been saved." });
     },
     onError: () => {
       toast({
