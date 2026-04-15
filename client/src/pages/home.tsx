@@ -803,6 +803,26 @@ export default function HomePage() {
     },
   });
 
+  // Dedicated mutation for star ratings — updates only the single show in the
+  // cache instantly without touching any other show or triggering a refetch.
+  // This means multiple rapid ratings never interfere with each other.
+  const ratingMutation = useMutation({
+    mutationFn: ({ id, rating }: { id: number; rating: number }) =>
+      apiRequest("PATCH", `/api/shows/${id}`, { rating }),
+    onMutate: ({ id, rating }) => {
+      // Immediately patch just this show in the cache — no snapshots, no rollback
+      queryClient.setQueryData(["/api/shows"], (old: any) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((s: any) => (s.id === id ? { ...s, rating } : s));
+      });
+    },
+    // No onSuccess invalidation — the cache already has the right value.
+    // On error, silently refetch to get the real server state.
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shows"] });
+    },
+  });
+
   const updateMutation = useMutation({
     mutationFn: ({
       id,
@@ -811,35 +831,12 @@ export default function HomePage() {
       id: number;
       data: Partial<FormValues>;
     }) => apiRequest("PATCH", `/api/shows/${id}`, data),
-    // Optimistic update: immediately apply the change in the cache so the
-    // UI reflects it instantly without waiting for the server round-trip.
-    onMutate: async ({ id, data }) => {
-      // Cancel any in-flight refetches so they don't overwrite our optimistic value
-      await queryClient.cancelQueries({ queryKey: ["/api/shows"] });
-      // Snapshot the current cache so we can roll back on error
-      const previous = queryClient.getQueryData(["/api/shows"]);
-      // Apply the change immediately in the cache
-      queryClient.setQueryData(["/api/shows"], (old: any) => {
-        if (!Array.isArray(old)) return old;
-        return old.map((show: any) =>
-          show.id === id ? { ...show, ...data } : show
-        );
-      });
-      return { previous };
-    },
-    onSuccess: (_result, { data }) => {
-      // Only invalidate (refetch) when it's a full edit-dialog save, not a quick rating tap
-      if (!('rating' in data && Object.keys(data).length === 1)) {
-        queryClient.invalidateQueries({ queryKey: ["/api/shows"] });
-        toast({ title: "Show updated!" });
-      }
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shows"] });
+      toast({ title: "Show updated!" });
       setEditShow(null);
     },
-    onError: (_err, _vars, context: any) => {
-      // Roll back to the snapshot if the save failed
-      if (context?.previous) {
-        queryClient.setQueryData(["/api/shows"], context.previous);
-      }
+    onError: () => {
       toast({
         title: "Error",
         description: "Failed to update show.",
@@ -1241,7 +1238,7 @@ export default function HomePage() {
                           updateMutation.mutate({ id, data: { status } })
                         }
                         onRatingChange={(id, rating) =>
-                          updateMutation.mutate({ id, data: { rating } })
+                          ratingMutation.mutate({ id, rating })
                         }
                       />
                     ))}
