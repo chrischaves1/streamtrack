@@ -792,17 +792,41 @@ export default function HomePage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: FormValues) => apiRequest("POST", "/api/shows", data),
+    mutationFn: async (data: FormValues) => {
+      // Client-side duplicate check before hitting the server
+      const existing = queryClient.getQueryData<Show[]>(["/api/shows"]) ?? [];
+      const duplicate = existing.find(
+        (s) => s.title.toLowerCase() === data.title.toLowerCase()
+      );
+      if (duplicate) {
+        throw Object.assign(new Error("duplicate"), { isDuplicate: true, title: duplicate.title });
+      }
+      const res = await apiRequest("POST", "/api/shows", data);
+      if (res.status === 409) {
+        const body = await res.json();
+        throw Object.assign(new Error("duplicate"), { isDuplicate: true, title: data.title, serverMsg: body.error });
+      }
+      if (!res.ok) throw new Error("failed");
+      return res.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shows"] });
       setAddOpen(false);
     },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to add show.",
-        variant: "destructive",
-      });
+    onError: (err: any) => {
+      if (err.isDuplicate) {
+        toast({
+          title: "Already in your list",
+          description: err.serverMsg ?? `"${err.title}" is already being tracked.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to add show.",
+          variant: "destructive",
+        });
+      }
     },
   });
 
