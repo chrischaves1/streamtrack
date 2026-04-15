@@ -575,8 +575,34 @@ function ShowForm({
 }
 
 function StarRating({ value, onChange }: { value: number | null | undefined; onChange: (r: number) => void }) {
+  // localValue is the source of truth for display — initialized from server
+  // value and updated instantly on tap, independent of server round-trips.
+  const [localValue, setLocalValue] = useState<number>(value ?? 0);
   const [hovered, setHovered] = useState<number | null>(null);
-  const display = hovered ?? value ?? 0;
+
+  // Only sync from server when the server value changes AND we're not
+  // in the middle of a local change (i.e. only on first load / external updates)
+  const prevServerValue = useRef(value);
+  useEffect(() => {
+    // If server sent a genuinely different value (e.g. initial load or another
+    // device changed it), sync it in — but only if our local state still matches
+    // the old server value (meaning the user hasn't tapped since last sync).
+    if (value !== prevServerValue.current) {
+      if (localValue === (prevServerValue.current ?? 0)) {
+        setLocalValue(value ?? 0);
+      }
+      prevServerValue.current = value;
+    }
+  }, [value]);
+
+  const display = hovered ?? localValue;
+
+  function handleClick(star: number) {
+    const next = localValue === star ? 0 : star;
+    setLocalValue(next);
+    onChange(next);
+  }
+
   return (
     <div className="flex items-center gap-0.5" data-testid="star-rating">
       {[1, 2, 3, 4, 5].map((star) => (
@@ -586,7 +612,7 @@ function StarRating({ value, onChange }: { value: number | null | undefined; onC
           className="p-0.5 transition-transform hover:scale-110"
           onMouseEnter={() => setHovered(star)}
           onMouseLeave={() => setHovered(null)}
-          onClick={() => onChange(value === star ? 0 : star)}
+          onClick={() => handleClick(star)}
           data-testid={`star-${star}`}
         >
           <Star
@@ -615,6 +641,14 @@ function ShowCard({
   onStatusChange: (id: number, status: string) => void;
   onRatingChange: (id: number, rating: number) => void;
 }) {
+  // Local display rating — updates instantly on tap without waiting for the server
+  const [displayRating, setDisplayRating] = useState<number>(show.rating ?? 0);
+
+  function handleRatingChange(r: number) {
+    setDisplayRating(r);
+    onRatingChange(show.id, r);
+  }
+
   const statusCfg =
     STATUS_CONFIG[show.status as keyof typeof STATUS_CONFIG] ||
     STATUS_CONFIG.watching;
@@ -740,9 +774,9 @@ function ShowCard({
 
       {/* Star rating */}
       <div className="mt-3 flex items-center justify-between">
-        <StarRating value={show.rating} onChange={(r) => onRatingChange(show.id, r)} />
-        {show.rating ? (
-          <span className="text-xs text-muted-foreground">{show.rating}/5</span>
+        <StarRating value={displayRating} onChange={handleRatingChange} />
+        {displayRating > 0 ? (
+          <span className="text-xs text-muted-foreground">{displayRating}/5</span>
         ) : (
           <span className="text-xs text-muted-foreground/50">Rate it</span>
         )}
