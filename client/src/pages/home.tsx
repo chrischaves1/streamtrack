@@ -575,8 +575,28 @@ function ShowForm({
 }
 
 function StarRating({ value, onChange }: { value: number | null | undefined; onChange: (r: number) => void }) {
+  const [committed, setCommitted] = useState<number>(value ?? 0);
   const [hovered, setHovered] = useState<number | null>(null);
-  const display = hovered ?? value ?? 0;
+
+  // Keep committed in sync when the prop changes from outside
+  // (e.g. initial load), but never let it go backwards mid-session
+  const prevProp = useRef<number | null | undefined>(value);
+  useEffect(() => {
+    if (prevProp.current !== value) {
+      prevProp.current = value;
+      // Only accept the incoming value if we haven't set one locally yet
+      setCommitted((cur) => (cur === 0 ? (value ?? 0) : cur));
+    }
+  }, [value]);
+
+  const display = hovered ?? committed;
+
+  function handleClick(star: number) {
+    const next = committed === star ? 0 : star;
+    setCommitted(next);
+    onChange(next);
+  }
+
   return (
     <div className="flex items-center gap-0.5" data-testid="star-rating">
       {[1, 2, 3, 4, 5].map((star) => (
@@ -586,7 +606,7 @@ function StarRating({ value, onChange }: { value: number | null | undefined; onC
           className="p-0.5 transition-transform hover:scale-110"
           onMouseEnter={() => setHovered(star)}
           onMouseLeave={() => setHovered(null)}
-          onClick={() => onChange(value === star ? 0 : star)}
+          onClick={() => handleClick(star)}
           data-testid={`star-${star}`}
         >
           <Star
@@ -738,9 +758,13 @@ function ShowCard({
         </p>
       )}
 
-      {/* Star rating */}
+      {/* Star rating — value comes from ratingsMap merged at parent level */}
       <div className="mt-3 flex items-center justify-between">
-        <StarRating value={show.rating} onChange={(r) => onRatingChange(show.id, r)} />
+        <StarRating
+          key={show.id}
+          value={show.rating}
+          onChange={(r) => onRatingChange(show.id, r)}
+        />
         {show.rating ? (
           <span className="text-xs text-muted-foreground">{show.rating}/5</span>
         ) : (
