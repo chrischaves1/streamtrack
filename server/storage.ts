@@ -6,15 +6,24 @@ import fs from "fs";
 // ── SQLite setup ─────────────────────────────────────────────────────────────
 // DB_PATH env var lets Render (or any host) point to a persistent volume.
 // Falls back to process.cwd()/shows.db for local dev.
-const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), "shows.db");
-
-// Ensure the directory exists before opening the database.
-// This is needed when Render mounts a persistent disk (e.g. /data/shows.db).
-const dbDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+// Use DB_PATH if set AND its directory is accessible, otherwise fall back
+// to the local working directory. This prevents a crash when Render's
+// persistent disk isn't mounted yet.
+function resolveDbPath(): string {
+  const envPath = process.env.DB_PATH;
+  if (envPath) {
+    const dir = path.dirname(envPath);
+    try {
+      fs.accessSync(dir, fs.constants.W_OK);
+      return envPath; // directory exists and is writable
+    } catch {
+      console.warn(`[db] DB_PATH directory '${dir}' not accessible, falling back to local db`);
+    }
+  }
+  return path.join(process.cwd(), "shows.db");
 }
 
+const DB_PATH = resolveDbPath();
 const sqlite = new Database(DB_PATH);
 console.log("[db] SQLite path:", DB_PATH);
 
