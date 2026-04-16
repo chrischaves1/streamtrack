@@ -574,29 +574,11 @@ function ShowForm({
   );
 }
 
-function StarRating({ value, onChange }: { value: number | null | undefined; onChange: (r: number) => void }) {
-  const [committed, setCommitted] = useState<number>(value ?? 0);
+// Pure display component — value is fully controlled by the parent (ratingsMap).
+// No internal state, no useEffect, no sync logic. Cannot get out of sync.
+function StarRating({ value, onChange }: { value: number; onChange: (r: number) => void }) {
   const [hovered, setHovered] = useState<number | null>(null);
-
-  // Keep committed in sync when the prop changes from outside
-  // (e.g. initial load), but never let it go backwards mid-session
-  const prevProp = useRef<number | null | undefined>(value);
-  useEffect(() => {
-    if (prevProp.current !== value) {
-      prevProp.current = value;
-      // Only accept the incoming value if we haven't set one locally yet
-      setCommitted((cur) => (cur === 0 ? (value ?? 0) : cur));
-    }
-  }, [value]);
-
-  const display = hovered ?? committed;
-
-  function handleClick(star: number) {
-    const next = committed === star ? 0 : star;
-    setCommitted(next);
-    onChange(next);
-  }
-
+  const display = hovered ?? value;
   return (
     <div className="flex items-center gap-0.5" data-testid="star-rating">
       {[1, 2, 3, 4, 5].map((star) => (
@@ -606,7 +588,7 @@ function StarRating({ value, onChange }: { value: number | null | undefined; onC
           className="p-0.5 transition-transform hover:scale-110"
           onMouseEnter={() => setHovered(star)}
           onMouseLeave={() => setHovered(null)}
-          onClick={() => handleClick(star)}
+          onClick={() => onChange(value === star ? 0 : star)}
           data-testid={`star-${star}`}
         >
           <Star
@@ -758,14 +740,13 @@ function ShowCard({
         </p>
       )}
 
-      {/* Star rating — value comes from ratingsMap merged at parent level */}
+      {/* Star rating — fully controlled by show.rating which comes from ratingsMap */}
       <div className="mt-3 flex items-center justify-between">
         <StarRating
-          key={show.id}
-          value={show.rating}
+          value={show.rating ?? 0}
           onChange={(r) => onRatingChange(show.id, r)}
         />
-        {show.rating ? (
+        {(show.rating ?? 0) > 0 ? (
           <span className="text-xs text-muted-foreground">{show.rating}/5</span>
         ) : (
           <span className="text-xs text-muted-foreground/50">Rate it</span>
@@ -889,6 +870,18 @@ export default function HomePage() {
       });
     },
   });
+
+  // Seed ratingsMap from server data on first load only.
+  // After that, ratingsMap is the source of truth.
+  const ratingsSeeded = useRef(false);
+  useEffect(() => {
+    if (!ratingsSeeded.current && shows.length > 0) {
+      ratingsSeeded.current = true;
+      const initial: Record<number, number> = {};
+      shows.forEach((s) => { if (s.rating) initial[s.id] = s.rating; });
+      setRatingsMap(initial);
+    }
+  }, [shows]);
 
   // Flush any ratings that failed to save (e.g. server was asleep on Render)
   // whenever the page becomes visible again
