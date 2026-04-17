@@ -74,6 +74,15 @@ sqlite.exec(`
     expires_at INTEGER NOT NULL
   )
 `);
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS invites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL UNIQUE,
+    inviter_id INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    used_by_user_id INTEGER
+  )
+`);
 // Migrations
 try { sqlite.exec(`ALTER TABLE shows ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE shows ADD COLUMN rating INTEGER`); } catch {}
@@ -108,6 +117,9 @@ export interface IStorage {
   updateUser(id: number, data: { username?: string; displayName?: string; isPublic?: number }): Promise<User | undefined>;
   follow(followerId: number, followingId: number): Promise<void>;
   unfollow(followerId: number, followingId: number): Promise<void>;
+  createInvite(inviterId: number, token: string): Promise<void>;
+  getInviteByToken(token: string): Promise<{ id: number; inviterId: number; usedByUserId: number | null } | undefined>;
+  markInviteUsed(token: string, usedByUserId: number): Promise<void>;
   getFollowing(userId: number): Promise<number[]>;
   getFollowers(userId: number): Promise<number[]>;
   isFollowing(followerId: number, followingId: number): Promise<boolean>;
@@ -248,6 +260,15 @@ const sqliteStorage: IStorage = {
   async unfollow(followerId, followingId) {
     sqlite.prepare(`DELETE FROM follows WHERE follower_id = ? AND following_id = ?`).run(followerId, followingId);
   },
+  async createInvite(inviterId, token) {
+    sqlite.prepare(`INSERT INTO invites (token, inviter_id, created_at) VALUES (?, ?, ?)`).run(token, inviterId, Date.now());
+  },
+  async getInviteByToken(token) {
+    return sqlite.prepare(`SELECT id, inviter_id, used_by_user_id FROM invites WHERE token = ?`).get(token) as any;
+  },
+  async markInviteUsed(token, usedByUserId) {
+    sqlite.prepare(`UPDATE invites SET used_by_user_id = ? WHERE token = ?`).run(usedByUserId, token);
+  },
   async getFollowing(userId) {
     const rows = sqlite.prepare(`SELECT following_id FROM follows WHERE follower_id = ?`).all(userId) as { following_id: number }[];
     return rows.map(r => r.following_id);
@@ -333,6 +354,15 @@ async function getPgStorage(): Promise<IStorage> {
       follower_id INTEGER NOT NULL REFERENCES users(id),
       following_id INTEGER NOT NULL REFERENCES users(id),
       UNIQUE(follower_id, following_id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS invites (
+      id SERIAL PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      inviter_id INTEGER NOT NULL REFERENCES users(id),
+      created_at BIGINT NOT NULL,
+      used_by_user_id INTEGER REFERENCES users(id)
     )
   `);
   // Safe migrations
@@ -499,6 +529,16 @@ async function getPgStorage(): Promise<IStorage> {
     async unfollow(followerId, followingId) {
       await pool.query(`DELETE FROM follows WHERE follower_id = $1 AND following_id = $2`, [followerId, followingId]);
     },
+    async createInvite(inviterId, token) {
+      await pool.query(`INSERT INTO invites (token, inviter_id, created_at) VALUES ($1, $2, $3)`, [token, inviterId, Date.now()]);
+    },
+    async getInviteByToken(token) {
+      const res = await pool.query(`SELECT id, inviter_id, used_by_user_id FROM invites WHERE token = $1`, [token]);
+      return res.rows[0];
+    },
+    async markInviteUsed(token, usedByUserId) {
+      await pool.query(`UPDATE invites SET used_by_user_id = $1 WHERE token = $2`, [usedByUserId, token]);
+    },
     async getFollowing(userId) {
       const res = await pool.query(`SELECT following_id FROM follows WHERE follower_id = $1`, [userId]);
       return res.rows.map((r: any) => r.following_id);
@@ -553,6 +593,9 @@ export const storage: IStorage = {
   async updateUser(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).updateUser(...args); },
   async follow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).follow(...args); },
   async unfollow(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).unfollow(...args); },
+  async createInvite(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).createInvite(...args); },
+  async getInviteByToken(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).getInviteByToken(...args); },
+  async markInviteUsed(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).markInviteUsed(...args); },
   async getFollowing(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).getFollowing(...args); },
   async getFollowers(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).getFollowers(...args); },
   async isFollowing(...args) { return (process.env.DATABASE_URL ? await getPgStorage() : sqliteStorage).isFollowing(...args); },

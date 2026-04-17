@@ -18,6 +18,7 @@ import {
   Share2,
   Settings,
   Users,
+  Link2,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { Show } from "@shared/schema";
@@ -373,9 +374,103 @@ function ShareCard() {
   );
 }
 
+// ── Invite Friends Tab ────────────────────────────────────────────────────────
+function InviteFriends() {
+  const { toast } = useToast();
+  const [inviteLink, setInviteLink] = useState("");
+  const [generating, setGenerating] = useState(false);
+
+  const generate = async () => {
+    setGenerating(true);
+    try {
+      const res = await apiRequest("POST", "/api/invites/generate");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      const base = `${window.location.origin}${window.location.pathname}`;
+      setInviteLink(`${base}#/register?invite=${data.token}`);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(inviteLink).catch(() => {});
+    toast({ title: "Link copied!", description: "Share it with a friend to invite them." });
+  };
+
+  const shareLink = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: "Join me on StreamTrack",
+          text: "I use StreamTrack to keep track of all my shows. Join me!",
+          url: inviteLink,
+        });
+      } catch {}
+    } else {
+      copyLink();
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+        <Link2 className="h-4 w-4 text-primary" />
+        Invite a Friend
+      </h3>
+      <p className="text-sm text-muted-foreground">
+        Generate a personal invite link. When your friend signs up through it, they'll automatically follow you so you can see each other's watchlists.
+      </p>
+
+      <Button
+        onClick={generate}
+        disabled={generating}
+        className="w-full"
+        data-testid="button-generate-invite"
+      >
+        <Link2 className="h-4 w-4 mr-2" />
+        {generating ? "Generating..." : "Generate Invite Link"}
+      </Button>
+
+      {inviteLink && (
+        <div className="space-y-3">
+          <div className="p-3 bg-muted/50 rounded-lg">
+            <p className="text-xs text-muted-foreground mb-1.5">Your invite link:</p>
+            <code className="text-xs text-primary break-all leading-relaxed">{inviteLink}</code>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={copyLink}
+              data-testid="button-copy-invite"
+            >
+              <Copy className="h-4 w-4 mr-2" />
+              Copy
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={shareLink}
+              data-testid="button-share-invite"
+            >
+              <Share2 className="h-4 w-4 mr-2" />
+              {typeof navigator !== "undefined" && navigator.share ? "Share" : "Copy & Share"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground text-center">
+            Each link can only be used once. Generate a new one for each person.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Social Page ──────────────────────────────────────────────────────────
 export default function SocialPage() {
-  const [tab, setTab] = useState<"feed" | "friends" | "share" | "settings">("feed");
+  const [tab, setTab] = useState<"feed" | "friends" | "invite" | "share" | "settings">("feed");
 
   return (
     <div className="min-h-screen bg-background">
@@ -396,6 +491,7 @@ export default function SocialPage() {
           {([
             { key: "feed", label: "Feed", icon: Tv },
             { key: "friends", label: "Friends", icon: Users },
+            { key: "invite", label: "Invite", icon: Link2 },
             { key: "share", label: "Share", icon: Share2 },
             { key: "settings", label: "Profile", icon: Settings },
           ] as const).map(({ key, label, icon: Icon }) => (
@@ -419,6 +515,7 @@ export default function SocialPage() {
       <main className="max-w-lg mx-auto px-4 py-5">
         {tab === "feed" && <FriendsFeed />}
         {tab === "friends" && <FindFriends />}
+        {tab === "invite" && <InviteFriends />}
         {tab === "share" && <ShareCard />}
         {tab === "settings" && <ProfileSettings />}
       </main>

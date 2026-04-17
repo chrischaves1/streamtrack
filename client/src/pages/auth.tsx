@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,24 @@ export default function AuthPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+  const [inviteToken, setInviteToken] = useState("");
+  const [inviterName, setInviterName] = useState("");
+
+  // Read ?invite=TOKEN from the URL hash on mount
+  useEffect(() => {
+    const hash = window.location.hash; // e.g. "#/register?invite=abc123"
+    const match = hash.match(/[?&]invite=([^&]+)/);
+    if (match) {
+      const tok = decodeURIComponent(match[1]);
+      setInviteToken(tok);
+      setMode("register");
+      // Look up the inviter's name so we can greet the new user
+      apiRequest("GET", `/api/invites/${tok}`)
+        .then((r) => r.json())
+        .then((d) => { if (d.inviterName) setInviterName(d.inviterName); })
+        .catch(() => {});
+    }
+  }, []);
 
   const switchMode = (m: Mode) => { setMode(m); setError(""); setSuccess(""); };
 
@@ -42,7 +60,7 @@ export default function AuthPage() {
         lsSet("st_email", email);
 
       } else if (mode === "register") {
-        await register(email, password, displayName);
+        await register(email, password, displayName, inviteToken || undefined);
         lsSet("st_email", email);
 
       } else if (mode === "forgot") {
@@ -79,7 +97,7 @@ export default function AuthPage() {
 
   const modeConfig = {
     login:    { icon: <LogIn className="h-5 w-5 text-primary" />,    title: "Sign In",          sub: "Welcome back — sign in to see your shows." },
-    register: { icon: <UserPlus className="h-5 w-5 text-primary" />, title: "Create Account",   sub: "Set up your account to start tracking shows." },
+    register: { icon: <UserPlus className="h-5 w-5 text-primary" />, title: "Create Account",   sub: inviterName ? `${inviterName} invited you to join StreamTrack!` : "Set up your account to start tracking shows." },
     forgot:   { icon: <KeyRound className="h-5 w-5 text-primary" />, title: "Reset Password",   sub: "Enter your email and we'll generate a reset token." },
     reset:    { icon: <KeyRound className="h-5 w-5 text-primary" />, title: "Set New Password", sub: "Enter your new password below." },
   }[mode];

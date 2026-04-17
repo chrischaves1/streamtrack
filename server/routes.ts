@@ -178,10 +178,24 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.post("/api/auth/register", async (req, res) => {
     try {
       const { email, password, displayName } = registerSchema.parse(req.body);
+      const inviteToken: string | undefined = req.body.inviteToken;
       const existing = await storage.getUserByEmail(email);
       if (existing) return res.status(409).json({ error: "An account with this email already exists" });
       const passwordHash = bcrypt.hashSync(password, 10);
       const user = await storage.createUser(email, passwordHash, displayName);
+      // If a valid invite token was supplied, auto-follow the inviter
+      if (inviteToken) {
+        try {
+          const invite = await storage.getInviteByToken(inviteToken);
+          if (invite && invite.inviterId !== user.id) {
+            await storage.follow(user.id, invite.inviterId);
+            await storage.markInviteUsed(inviteToken);
+          }
+        } catch (inviteErr) {
+          // Non-fatal — log but don't block registration
+          console.error("[invite auto-follow error]", inviteErr);
+        }
+      }
       const token = generateToken();
       await storage.createSession(token, user.id);
       setSessionCookie(res, token);
@@ -440,6 +454,31 @@ export function registerRoutes(httpServer: Server, app: Express) {
       res.json(feedShows);
     } catch (e) {
       res.status(500).json({ error: "Failed to load feed" });
+    }
+  });
+
+  // ── Invite links ──────────────────────────────────────────────────────────
+  // Generate a personal invite token for the logged-in user
+  app.post("/api/invites/generate", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      const token = require("crypto").randomBytes(12).toString("hex");
+      await storage.createInvite(userId, token);
+      res.json({ token });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to generate invite" });
+    }
+  });
+
+  // Look up an invite token (public — used on the register page)
+  app.get("/api/invites/:token", async (req, res) => {
+    try {
+      const invite = await storage.getInviteByToken(req.params.token);
+      if (!invite) return res.status(404).json({ error: "Invite not found" });
+      const inviter = await storage.getUserById(invite.inviterId);
+      res.json({ valid: true, inviterName: inviter?.displayName ?? "A friend" });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to look up invite" });
     }
   });
 }

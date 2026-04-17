@@ -11,6 +11,16 @@ export const users = sqliteTable("users", {
   isPublic: integer("is_public").default(1), // 1 = profile visible, 0 = private
 });
 
+export const invites = sqliteTable("invites", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  token: text("token").notNull().unique(),
+  inviterId: integer("inviter_id").notNull().references(() => users.id),
+  createdAt: integer("created_at").notNull(), // unix timestamp
+  usedByUserId: integer("used_by_user_id"), // null until accepted
+});
+
+export type Invite = typeof invites.$inferSelect;
+
 export const follows = sqliteTable("follows", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   followerId: integer("follower_id").notNull().references(() => users.id),
